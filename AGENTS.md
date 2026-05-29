@@ -23,7 +23,7 @@ All logic lives in `src/pim_ge/`. `examples/` and `reproduction/` are runnable s
 | `inverse/priors.py` | ✅ log-prior for all 7 params + background + sigma² |
 | `inverse/gibbs.py` | ✅ conjugate updates for background (MVN) and sigma² (IG) |
 | `inverse/mcmc.py` | ✅ M-MALA step, `mwg_scan` via `jax.lax.scan`, cumulative step-size adaptation |
-| `examples/` | ✅ `gaussian_plume_visualization.py` (2D heatmap), `gaussian_plume_3d_visualization.py` (3D scatter + panels) |
+| `examples/` | ✅ `gaussian_3d.py` — animated 3D scatter + ground footprint + xz cross-section, argparse `--class/--frames/--fps` |
 | `reproduction/` | ✅ section4 (12-scenario sweep), section5 (stub, needs Chilbolton data) |
 
 ---
@@ -186,8 +186,7 @@ Rules: E, F, I (isort), UP (pyupgrade), B (bugbear), SIM. Line length 100.
 | §3 full loop | `inverse/mcmc.py` | `mwg_scan`, `build_log_posterior` |
 | §4 sim study | `reproduction/section4_simulation_study.py` | DPV × WDC × SER sweep |
 | §5 Chilbolton | `reproduction/section5_chilbolton.py` | beam-sensor inversion (needs data) |
-| examples | `examples/gaussian_plume_visualization.py` | 2D ppm heatmap (T=1 snapshot) |
-| examples | `examples/gaussian_plume_3d_visualization.py` | 3D scatter core + ground footprint + xz cross-section |
+| examples | `examples/gaussian_3d.py` | animated 3D scatter + footprint + xz cross-section; wind rotates 0→2π over T frames |
 
 ---
 

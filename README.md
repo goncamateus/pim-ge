@@ -11,6 +11,7 @@ uv sync                          # core (jax, numpy, scipy)
 uv sync --extra examples         # + matplotlib + jupyter
 uv sync --extra reproduction     # + matplotlib + jupyter + pandas
 uv sync --extra dev              # + ruff + pytest
+uv sync --extra gpu              # + jax[cuda12] for GPU acceleration
 ```
 
 ## Package layout
@@ -29,8 +30,7 @@ src/pim_ge/
     └── types.py      # Grid, SourceLocation dataclasses
 
 examples/
-├── gaussian_plume_visualization.py   # 2D ppm heatmap + wind arrow
-└── gaussian_plume_3d_visualization.py # 3D scatter cloud + ground footprint + xz cross-section
+└── gaussian_3d.py   # 3D animated plume: scatter cloud + ground footprint + xz cross-section
 
 reproduction/
 ├── section4_simulation_study.py      # §4 — DPV × WDC × SER sweep (12 scenarios)
@@ -159,13 +159,10 @@ Divide by beam length to convert to path-average [ppm per kg/s].
 ## Run examples and reproduction
 
 ```bash
-# 2D heatmap — requires matplotlib
-uv run --extra examples python examples/gaussian_plume_visualization.py
-# → examples/plume_demo.png
-
-# 3D scatter cloud + ground footprint + vertical cross-section
-uv run --extra examples python examples/gaussian_plume_3d_visualization.py
-# → examples/plume_3d_demo.png
+# 3D animated plume — wind direction sweeps 0→360° over T frames
+# args: --class [A-F]  --frames N  --fps N  --show
+uv run --extra examples examples/gaussian_3d.py --class D --frames 100 --fps 10
+# → examples/plume_3d_classD.mp4  (or .gif if ffmpeg absent)
 
 # Section 4 simulation study (12 scenarios, ~10 min at ITERS=2000)
 uv run python reproduction/section4_simulation_study.py

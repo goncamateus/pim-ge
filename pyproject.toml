@@ -15,6 +15,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+gpu = [
+    "jax[cuda12]>=0.4",
+]
 examples = [
     "matplotlib>=3.9",
     "jupyter>=1.1",
