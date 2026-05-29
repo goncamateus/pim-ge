@@ -1,6 +1,6 @@
 """Reproduce §5 Chilbolton real-data case study of Newman et al. (2024).
 
-Chilbolton uses Open-Path FTIR beam sensors with 7 reflector paths (40 cm spacing).
+Chilbolton uses Open-Path FTIR beam sensors with 7 reflector paths.
 This script inverts Source 1 with 4 dispersion models:
     1. Fixed Briggs class D
     2. Fixed Smith class D
@@ -9,65 +9,105 @@ This script inverts Source 1 with 4 dispersion models:
 
 Data availability
 -----------------
-The preprocessed Chilbolton data is NOT included in this repository.
-Download the original data from:
+Data must be present at:
 
+    Data/Chilbolton_data_files/Postprocessed/
+        Source_1/Chilbolton_CH4_measurements_source_1.pkl
+        Source_1/Chilbolton_windfield_source_1.pkl
+        Sensor_reflector_locations/Chilbolton_instruments_location.pkl
+        Source_locations_and_emission_rates/Chilbolton_sources_locations_and_emission_rates.pkl
+
+Download from:
     https://github.com/NewmanTHP/Probabilistic-Inversion-Modeling-of-Gas-Emissions
-
-Place the files under `Data/` in the project root:
-    Data/
-        Chilbolton_Source1_preprocessed.npz   (or equivalent)
-        chilbolton_beam_geometry.npz
-
-The npz files should contain:
-    measurements : (T, N_beams) float32 [ppm·m]  path-integrated concentrations
-    beam_starts  : (N_beams, 3) float32 [m]      beam start coordinates
-    beam_ends    : (N_beams, 3) float32 [m]      beam end coordinates
-    wind_speed   : (T,) float32 [m/s]
-    wind_direction : (T,) float32 [rad]
-    release_rate : float  true emission rate [kg/s]
-    release_x    : float  true source x [m]
-    release_y    : float  true source y [m]
-    release_z    : float  true source z [m]
 """
+import pickle
 import sys
 from pathlib import Path
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from pim_ge import GibbsSamplers, Priors, SourceLocation, WindField, mwg_scan
 from pim_ge.forward.plume import beam_path_coupling_matrix
 
 # --- Configuration ------------------------------------------------------------
-DATA_DIR     = Path("Data")
-SOURCE1_FILE = DATA_DIR / "Chilbolton_Source1_preprocessed.npz"
-MODELS       = ["Briggs_fixed", "Smith_fixed", "Draxler_estimated", "Smith_estimated"]
-ITERS        = 5000
-BURN_IN      = 1000
-MIXING_HEIGHT = 200.0   # [m] — Chilbolton experiment
+_POST = Path("Data/Chilbolton_data_files/Postprocessed")
+_MEAS_FILE  = _POST / "Source_1/Chilbolton_CH4_measurements_source_1.pkl"
+_WIND_FILE  = _POST / "Source_1/Chilbolton_windfield_source_1.pkl"
+_LOCS_FILE  = _POST / "Sensor_reflector_locations/Chilbolton_instruments_location.pkl"
+_SRCS_FILE  = _POST / "Source_locations_and_emission_rates/Chilbolton_sources_locations_and_emission_rates.pkl"
+
+MODELS        = ["Briggs_fixed", "Smith_fixed", "Draxler_estimated", "Smith_estimated"]
+ITERS         = 5000
+BURN_IN       = 1000
+MIXING_HEIGHT = 200.0
 KEY           = jax.random.PRNGKey(0)
+N_BEAMS       = 7
+SOURCE_Z      = 0.3   # [m] — release height at Chilbolton
 
 
 def check_data():
-    if not SOURCE1_FILE.exists():
+    missing = [f for f in (_MEAS_FILE, _WIND_FILE, _LOCS_FILE, _SRCS_FILE) if not f.exists()]
+    if missing:
         print("=" * 70)
         print("DATA NOT FOUND")
         print("=" * 70)
+        for f in missing:
+            print(f"  missing: {f}")
         print(__doc__)
         sys.exit(1)
 
 
-def load_data(path: Path) -> dict:
-    import numpy as np
-    d = np.load(path)
-    return {k: jnp.array(d[k]) for k in d.files}
+def load_data() -> dict:
+    def _pkl(p):
+        with open(p, "rb") as fh:
+            return pickle.load(fh)
+
+    meas_df = _pkl(_MEAS_FILE)
+    wind_df = _pkl(_WIND_FILE)
+    locs    = _pkl(_LOCS_FILE)
+    srcs    = _pkl(_SRCS_FILE)
+
+    T = len(wind_df)
+
+    # measurements: (973,) → (T, N_BEAMS)
+    measurements = meas_df["Measurements"].values.reshape(T, N_BEAMS).astype(np.float32)
+
+    # beam geometry: sensor is start for all beams; reflectors are ends
+    sensor = np.array(locs["line_of_sight_sensor"], dtype=np.float32)  # (3,)
+    beam_starts = np.tile(sensor, (N_BEAMS, 1))                         # (7, 3)
+    beam_ends   = np.array(
+        [locs[f"reflector_{i}"] for i in range(1, N_BEAMS + 1)],
+        dtype=np.float32,
+    )  # (7, 3)
+
+    # wind: direction in degrees → radians
+    wind_speed     = wind_df["Average Speed"].values.astype(np.float32)
+    wind_direction = np.deg2rad(wind_df["Average Direction"].values).astype(np.float32)
+    tan_gamma_H    = wind_df["Average Tan_gamma Horizontal"].values.astype(np.float32)
+    tan_gamma_V    = wind_df["Average Tan_gamma Vertical"].values.astype(np.float32)
+
+    src1 = srcs["source_1_location"]   # [x, y, z]
+    return {
+        "measurements":  jnp.array(measurements),
+        "beam_starts":   jnp.array(beam_starts),
+        "beam_ends":     jnp.array(beam_ends),
+        "wind_speed":    jnp.array(wind_speed),
+        "wind_direction": jnp.array(wind_direction),
+        "tan_gamma_H":   float(np.mean(tan_gamma_H)),
+        "tan_gamma_V":   float(np.mean(tan_gamma_V)),
+        "release_x":     float(src1[0]),
+        "release_y":     float(src1[1]),
+        "release_z":     float(src1[2]),
+        "release_rate":  float(srcs["source_1_emission_rate"]),
+    }
 
 
-def make_coupling_fn(beam_starts, beam_ends, wind, model: str):
+def make_coupling_fn(beam_starts, beam_ends, wind, model: str, tan_gamma_H: float, tan_gamma_V: float):
     """Return coupling_fn(x) -> A (T, N_beams) [ppm·m per kg/s]."""
     def coupling_fn_fixed_briggs(x):
-        src = SourceLocation(x=x[5], y=x[6], z=float(x[7]) if x.shape[0] > 7 else 1.0)
+        src = SourceLocation(x=x[5], y=x[6], z=SOURCE_Z)
         return beam_path_coupling_matrix(
             src, beam_starts, beam_ends, wind,
             mixing_height=MIXING_HEIGHT,
@@ -75,7 +115,7 @@ def make_coupling_fn(beam_starts, beam_ends, wind, model: str):
         )
 
     def coupling_fn_fixed_smith(x):
-        src = SourceLocation(x=x[5], y=x[6], z=1.0)
+        src = SourceLocation(x=x[5], y=x[6], z=SOURCE_Z)
         return beam_path_coupling_matrix(
             src, beam_starts, beam_ends, wind,
             mixing_height=MIXING_HEIGHT,
@@ -83,15 +123,16 @@ def make_coupling_fn(beam_starts, beam_ends, wind, model: str):
         )
 
     def coupling_fn_est_draxler(x):
-        src = SourceLocation(x=x[5], y=x[6], z=1.0)
+        src = SourceLocation(x=x[5], y=x[6], z=SOURCE_Z)
         return beam_path_coupling_matrix(
             src, beam_starts, beam_ends, wind,
             mixing_height=MIXING_HEIGHT,
             scheme="Draxler", estimated=True, log_params=x[:4],
+            tan_gamma_H=tan_gamma_H, tan_gamma_V=tan_gamma_V,
         )
 
     def coupling_fn_est_smith(x):
-        src = SourceLocation(x=x[5], y=x[6], z=1.0)
+        src = SourceLocation(x=x[5], y=x[6], z=SOURCE_Z)
         return beam_path_coupling_matrix(
             src, beam_starts, beam_ends, wind,
             mixing_height=MIXING_HEIGHT,
@@ -108,7 +149,10 @@ def make_coupling_fn(beam_starts, beam_ends, wind, model: str):
 
 def run_inversion(data: dict, model: str, key) -> dict:
     wind = WindField(speed=data["wind_speed"], direction=data["wind_direction"])
-    coupling_fn = make_coupling_fn(data["beam_starts"], data["beam_ends"], wind, model)
+    coupling_fn = make_coupling_fn(
+        data["beam_starts"], data["beam_ends"], wind, model,
+        tan_gamma_H=data["tan_gamma_H"], tan_gamma_V=data["tan_gamma_V"],
+    )
 
     priors = Priors(
         log_a_H_std=2.0, log_a_V_std=2.0, log_b_H_std=1.0, log_b_V_std=1.0,
@@ -179,8 +223,8 @@ def plot_posteriors(results: list[dict], data: dict, out="reproduction/section5_
 
 def main():
     check_data()
-    data = load_data(SOURCE1_FILE)
-    print(f"Loaded {SOURCE1_FILE}: {data['measurements'].shape} measurements")
+    data = load_data()
+    print(f"Loaded Source 1: {data['measurements'].shape} measurements")
 
     results = []
     for i, model in enumerate(MODELS):

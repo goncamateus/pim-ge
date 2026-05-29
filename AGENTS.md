@@ -192,14 +192,15 @@ Rules: E, F, I (isort), UP (pyupgrade), B (bugbear), SIM. Line length 100.
 
 ## Chilbolton data (§5)
 
-No data bundled. `section5_chilbolton.py` prints download instructions and exits cleanly if `Data/` absent.
+Data lives at `Data/Chilbolton_data_files/Postprocessed/` (original pkl format from the paper's repo).
+`section5_chilbolton.py` loads directly from pkl — no preprocessing step needed.
 
-Expected files under `Data/`:
 ```
-Data/
-    Chilbolton_Source1_preprocessed.npz
-    chilbolton_beam_geometry.npz
+Data/Chilbolton_data_files/Postprocessed/
+    Source_1/Chilbolton_CH4_measurements_source_1.pkl    # (973,) → reshaped (139, 7) [ppm·m]
+    Source_1/Chilbolton_windfield_source_1.pkl            # speed [m/s], direction [deg], tan_gamma H/V
+    Sensor_reflector_locations/Chilbolton_instruments_location.pkl  # sensor + 7 reflector xyz [m]
+    Source_locations_and_emission_rates/Chilbolton_sources_locations_and_emission_rates.pkl
 ```
 
-NPZ keys: `measurements (T, N_beams)`, `beam_starts (N_beams, 3)`, `beam_ends (N_beams, 3)`,
-`wind_speed (T,)`, `wind_direction (T,)`, `release_rate`, `release_x`, `release_y`, `release_z`.
+Key facts: T=139 timesteps, N_beams=7, sensor z=1.6 m, source z=0.3 m, wind direction in degrees (converted to radians on load).
