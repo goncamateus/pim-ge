@@ -1,0 +1,50 @@
+[project]
+name = "pim-ge"
+version = "0.1.0"
+description = "Probabilistic Inversion Modeling of Gas Emissions — reimplementation of Newman et al. (2024)"
+readme = "README.md"
+authors = [
+    { name = "goncamateus", email = "mateus.gm@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "jax>=0.4",
+    "jaxlib>=0.4",
+    "numpy>=2.0",
+    "scipy>=1.13",
+]
+
+[project.optional-dependencies]
+examples = [
+    "matplotlib>=3.9",
+    "jupyter>=1.1",
+]
+reproduction = [
+    "matplotlib>=3.9",
+    "jupyter>=1.1",
+    "pandas>=2.2",
+]
+dev = [
+    "ruff>=0.9",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.21,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pim_ge"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
