@@ -10,3 +10,4 @@ wheels/
 .venv
 Data/
 reproduction/*.csv
+reproduction/*.png
