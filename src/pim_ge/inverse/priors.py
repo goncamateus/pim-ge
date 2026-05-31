@@ -1,4 +1,5 @@
 """Prior distributions — §3 of Newman et al. (2024)."""
+
 from dataclasses import dataclass
 
 import jax.numpy as jnp

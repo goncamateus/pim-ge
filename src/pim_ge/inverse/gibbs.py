@@ -1,4 +1,5 @@
 """Closed-form Gibbs updates for conjugate parameters — §3 of Newman et al. (2024)."""
+
 from dataclasses import dataclass
 
 import jax
@@ -15,8 +16,8 @@ class GibbsSamplers:
     def background_conditional_posterior(
         self,
         key: Array,
-        data: Array,       # (T, N)
-        coupling: Array,   # (T, N)
+        data: Array,  # (T, N)
+        coupling: Array,  # (T, N)
         emission_rate: float,
         sigma2: float,
     ) -> Array:
@@ -27,8 +28,8 @@ class GibbsSamplers:
         Posterior per sensor is independent (diagonal prior + diagonal likelihood per sensor).
         """
         T = data.shape[0]
-        residuals = data - coupling * emission_rate   # (T, N)
-        sigma_bg2 = self.priors.background_std ** 2
+        residuals = data - coupling * emission_rate  # (T, N)
+        sigma_bg2 = self.priors.background_std**2
         # posterior precision = T/sigma^2 + 1/sigma_bg^2
         post_prec = T / sigma2 + 1.0 / sigma_bg2
         post_var = 1.0 / post_prec
@@ -48,7 +49,7 @@ class GibbsSamplers:
         """
         n = residuals.size
         post_alpha = self.priors.sigma2_alpha + n / 2.0
-        post_beta = self.priors.sigma2_beta + 0.5 * jnp.sum(residuals ** 2)
+        post_beta = self.priors.sigma2_beta + 0.5 * jnp.sum(residuals**2)
         # Sample from IG(a, b) = 1 / Gamma(a, 1/b)
         gamma_sample = jax.random.gamma(key, post_alpha)
         return post_beta / gamma_sample

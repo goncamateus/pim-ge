@@ -14,8 +14,17 @@ def test_log_prior_scalar():
 
 def test_log_prior_mode():
     # at prior mean log_prior should be > any off-center value
-    x_mode = jnp.array([P.log_a_H_mean, P.log_a_V_mean, P.log_b_H_mean, P.log_b_V_mean,
-                         P.log_s_mean, P.source_x_mean, P.source_y_mean])
+    x_mode = jnp.array(
+        [
+            P.log_a_H_mean,
+            P.log_a_V_mean,
+            P.log_b_H_mean,
+            P.log_b_V_mean,
+            P.log_s_mean,
+            P.source_x_mean,
+            P.source_y_mean,
+        ]
+    )
     x_off = x_mode + 5.0
     assert float(P.log_prior(x_mode)) > float(P.log_prior(x_off))
 

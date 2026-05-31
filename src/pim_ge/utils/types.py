@@ -7,6 +7,7 @@ from jax import Array
 @dataclass
 class Grid:
     """Spatial domain for plume evaluation."""
+
     x: Array  # (Nx,) east-west [m]
     y: Array  # (Ny,) north-south [m]
     z: Array  # (Nz,) vertical [m]
@@ -23,6 +24,7 @@ class Grid:
 @dataclass
 class SourceLocation:
     """Point source position."""
+
     x: float  # [m]
     y: float  # [m]
     z: float  # [m]

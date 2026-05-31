@@ -2,6 +2,7 @@
 
 Core output: coupling matrix A such that data = A @ s + beta + noise.
 """
+
 from typing import Literal
 
 import jax
@@ -157,10 +158,14 @@ def temporal_gridfree_coupling_matrix(
     sx, sy, sz = sensor_positions[:, 0], sensor_positions[:, 1], sensor_positions[:, 2]
 
     # (T, N) downwind distances and offsets
-    x_down = jnp.outer(jnp.ones(T), sx - source.x) * jnp.cos(wind.direction)[:, None] + \
-             jnp.outer(jnp.ones(T), sy - source.y) * jnp.sin(wind.direction)[:, None]
-    y_cross = -jnp.outer(jnp.ones(T), sx - source.x) * jnp.sin(wind.direction)[:, None] + \
-              jnp.outer(jnp.ones(T), sy - source.y) * jnp.cos(wind.direction)[:, None]
+    x_down = (
+        jnp.outer(jnp.ones(T), sx - source.x) * jnp.cos(wind.direction)[:, None]
+        + jnp.outer(jnp.ones(T), sy - source.y) * jnp.sin(wind.direction)[:, None]
+    )
+    y_cross = (
+        -jnp.outer(jnp.ones(T), sx - source.x) * jnp.sin(wind.direction)[:, None]
+        + jnp.outer(jnp.ones(T), sy - source.y) * jnp.cos(wind.direction)[:, None]
+    )
     dz = sz - source.z  # (N,)
 
     downwind_mask = (x_down > 0.0).astype(jnp.float32)
@@ -172,20 +177,35 @@ def temporal_gridfree_coupling_matrix(
         b_H = jnp.exp(log_params[2])
         b_V = jnp.exp(log_params[3])
         sig_y = horizontal_stddev(
-            x_safe, scheme=scheme, estimated=True,
-            a_H=a_H, b_H=b_H, tan_gamma_H=tan_gamma_H, source_half_width=source_half_width,
+            x_safe,
+            scheme=scheme,
+            estimated=True,
+            a_H=a_H,
+            b_H=b_H,
+            tan_gamma_H=tan_gamma_H,
+            source_half_width=source_half_width,
         )
         sig_z = vertical_stddev(
-            x_safe, scheme=scheme, estimated=True,
-            a_V=a_V, b_V=b_V, tan_gamma_V=tan_gamma_V,
+            x_safe,
+            scheme=scheme,
+            estimated=True,
+            a_V=a_V,
+            b_V=b_V,
+            tan_gamma_V=tan_gamma_V,
         )
     else:
         sig_y = horizontal_stddev(
-            x_safe, scheme=scheme, stability_class=stability_class,
-            tan_gamma_H=tan_gamma_H, source_half_width=source_half_width,
+            x_safe,
+            scheme=scheme,
+            stability_class=stability_class,
+            tan_gamma_H=tan_gamma_H,
+            source_half_width=source_half_width,
         )
         sig_z = vertical_stddev(
-            x_safe, scheme=scheme, stability_class=stability_class, tan_gamma_V=tan_gamma_V,
+            x_safe,
+            scheme=scheme,
+            stability_class=stability_class,
+            tan_gamma_V=tan_gamma_V,
         )
 
     u = wind.speed[:, None]  # (T, 1)
@@ -195,10 +215,10 @@ def temporal_gridfree_coupling_matrix(
     dz_t = jnp.broadcast_to(dz[None, :], (T, N))
     h = source.z
     H = mixing_height
-    exp_z_direct    = jnp.exp(-0.5 * (dz_t / sig_z) ** 2)
-    exp_z_ground    = jnp.exp(-0.5 * ((dz_t + 2 * h) / sig_z) ** 2)
+    exp_z_direct = jnp.exp(-0.5 * (dz_t / sig_z) ** 2)
+    exp_z_ground = jnp.exp(-0.5 * ((dz_t + 2 * h) / sig_z) ** 2)
     exp_z_inversion = jnp.exp(-0.5 * ((dz_t - 2 * (H - h)) / sig_z) ** 2)
-    exp_z_ceiling2  = jnp.exp(-0.5 * ((dz_t + 2 * H) / sig_z) ** 2)
+    exp_z_ceiling2 = jnp.exp(-0.5 * ((dz_t + 2 * H) / sig_z) ** 2)
     exp_z = exp_z_direct + exp_z_ground + exp_z_inversion + exp_z_ceiling2
 
     coupling = downwind_mask / (2 * jnp.pi * u * sig_y * sig_z) * exp_y * exp_z
@@ -207,8 +227,8 @@ def temporal_gridfree_coupling_matrix(
 
 def beam_path_coupling_matrix(
     source: SourceLocation,
-    beam_starts: Array,   # (N_beams, 3)
-    beam_ends: Array,     # (N_beams, 3)
+    beam_starts: Array,  # (N_beams, 3)
+    beam_ends: Array,  # (N_beams, 3)
     wind: WindField,
     n_samples: int = 50,
     mixing_height: float = 500.0,
@@ -232,10 +252,16 @@ def beam_path_coupling_matrix(
     flat_positions = beam_points.reshape(-1, 3)  # (N_beams * n_samples, 3)
 
     A_flat = temporal_gridfree_coupling_matrix(
-        source, flat_positions, wind,
-        mixing_height=mixing_height, scheme=scheme, stability_class=stability_class,
-        estimated=estimated, log_params=log_params,
-        tan_gamma_H=tan_gamma_H, tan_gamma_V=tan_gamma_V,
+        source,
+        flat_positions,
+        wind,
+        mixing_height=mixing_height,
+        scheme=scheme,
+        stability_class=stability_class,
+        estimated=estimated,
+        log_params=log_params,
+        tan_gamma_H=tan_gamma_H,
+        tan_gamma_V=tan_gamma_V,
     )  # (T, N_beams * n_samples)
 
     A_beams = A_flat.reshape(wind.speed.shape[0], N_beams, n_samples)  # (T, N_beams, n_samples)

@@ -3,6 +3,7 @@
 Sampled vector: x = [log_a_H, log_a_V, log_b_H, log_b_V, log_s, source_x, source_y]
 beta and sigma^2 handled by exact Gibbs steps.
 """
+
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
@@ -20,6 +21,7 @@ StepSizeAdaptation = Literal["DOG", "Optimal", "False"]
 @dataclass
 class ManifoldMALAWithinGibbs:
     """M-MALA-within-Gibbs sampler (Algorithm 1 in Newman et al. 2024)."""
+
     priors: Priors
     gibbs: GibbsSamplers
     step_size: float = 0.01
@@ -41,7 +43,9 @@ class ManifoldMALAWithinGibbs:
         vals, vecs = jnp.linalg.eigh(inv_hess)
         return vecs @ jnp.diag(jnp.sqrt(jnp.abs(vals))) @ vecs.T
 
-    def _log_proposal(self, x_prop: Array, x_curr: Array, grad: Array, sqrt_G: Array, eps: float) -> Array:
+    def _log_proposal(
+        self, x_prop: Array, x_curr: Array, grad: Array, sqrt_G: Array, eps: float
+    ) -> Array:
         """Log density of M-MALA proposal q(x_prop | x_curr)."""
         mu = x_curr + 0.5 * eps**2 * (sqrt_G @ sqrt_G @ grad)
         diff = x_prop - mu
@@ -76,7 +80,9 @@ class ManifoldMALAWithinGibbs:
         x_prop = mu_fwd + eps * sqrt_G @ noise
 
         lp_prop, grad_prop = jax.value_and_grad(log_posterior_fn)(x_prop, background, sigma2)
-        inv_H_prop = self.inverse_hessian(x_prop, lambda xi: log_posterior_fn(xi, background, sigma2))
+        inv_H_prop = self.inverse_hessian(
+            x_prop, lambda xi: log_posterior_fn(xi, background, sigma2)
+        )
         sqrt_G_prop = self.sqrt_inv_hess(inv_H_prop)
 
         log_q_fwd = self._log_proposal(x_prop, x, grad_curr, sqrt_G, eps)
@@ -94,7 +100,9 @@ class ManifoldMALAWithinGibbs:
             step_size_new = step_size
 
         residuals_simple = data - background[None, :]
-        sigma2_new = self.gibbs.measurement_error_var_conditional_posterior(key_s2, residuals_simple)
+        sigma2_new = self.gibbs.measurement_error_var_conditional_posterior(
+            key_s2, residuals_simple
+        )
         background_new = self.gibbs.background_conditional_posterior(
             key_bg, data, jnp.ones_like(data) * 1e-10, 0.0, sigma2_new
         )
@@ -113,14 +121,16 @@ def build_log_posterior(
     Gaussian likelihood: data ~ Normal(A * exp(x[4]) + background, sqrt(sigma2)).
     x[4] = log_s, so emission rate = exp(x[4]).
     """
+
     def log_posterior(x: Array, background: Array, sigma2: Array) -> Array:
         A = coupling_fn(x)
         s = jnp.exp(x[4])
         predicted = A * s + background[None, :]
         T, N = data.shape
         n = T * N
-        ll = -0.5 * n * jnp.log(2 * jnp.pi * sigma2) \
-             - 0.5 / sigma2 * jnp.sum((data - predicted) ** 2)
+        ll = -0.5 * n * jnp.log(2 * jnp.pi * sigma2) - 0.5 / sigma2 * jnp.sum(
+            (data - predicted) ** 2
+        )
         lp = priors.log_prior(x)
         return ll + lp
 
@@ -164,7 +174,9 @@ def mwg_scan(
         x_prop = mu_fwd + step_size * sqrt_G @ noise
 
         lp_prop, grad_prop = jax.value_and_grad(log_posterior_fn)(x_prop, background, sigma2)
-        inv_H_prop = sampler.inverse_hessian(x_prop, lambda xi: log_posterior_fn(xi, background, sigma2))
+        inv_H_prop = sampler.inverse_hessian(
+            x_prop, lambda xi: log_posterior_fn(xi, background, sigma2)
+        )
         sqrt_G_prop = sampler.sqrt_inv_hess(inv_H_prop)
 
         log_q_fwd = sampler._log_proposal(x_prop, x, grad_curr, sqrt_G, step_size)
@@ -179,7 +191,9 @@ def mwg_scan(
         sum_accept_new = sum_accept + accepted
         iteration_new = iteration + 1.0
         if adaptation == "Optimal":
-            step_size_new = step_size * (1.0 + 0.1 * (sum_accept_new / iteration_new - target_accept))
+            step_size_new = step_size * (
+                1.0 + 0.1 * (sum_accept_new / iteration_new - target_accept)
+            )
         else:
             step_size_new = step_size
 
@@ -193,9 +207,23 @@ def mwg_scan(
         background_new = gibbs.background_conditional_posterior(key_bg, data, A, s, sigma2_new)
 
         lp_out = log_posterior_fn(x_new, background_new, sigma2_new)
-        carry_new = (x_new, sigma2_new, background_new, step_size_new, sum_accept_new, iteration_new)
-        output = (x_new, sigma2_new, background_new, lp_out, step_size_new, accepted,
-                  sum_accept_new / iteration_new)
+        carry_new = (
+            x_new,
+            sigma2_new,
+            background_new,
+            step_size_new,
+            sum_accept_new,
+            iteration_new,
+        )
+        output = (
+            x_new,
+            sigma2_new,
+            background_new,
+            lp_out,
+            step_size_new,
+            accepted,
+            sum_accept_new / iteration_new,
+        )
         return carry_new, output
 
     keys = jax.random.split(key, iters)

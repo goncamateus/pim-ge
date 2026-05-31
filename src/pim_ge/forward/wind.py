@@ -2,6 +2,7 @@
 
 Implements time-varying wind speed + direction as Ornstein-Uhlenbeck processes.
 """
+
 from dataclasses import dataclass
 
 import jax
@@ -12,7 +13,8 @@ from jax import Array
 @dataclass
 class WindField:
     """Container for a wind realization over T timesteps."""
-    speed: Array     # (T,) [m/s]
+
+    speed: Array  # (T,) [m/s]
     direction: Array  # (T,) [rad], meteorological convention
 
 
@@ -25,6 +27,7 @@ def generate_ornstein_uhlenbeck(
     dt: float = 1.0,
 ) -> Array:
     """Simulate scalar OU process: dX = theta*(mean - X)dt + std*dW."""
+
     def step(x, noise):
         x_next = x + theta * (mean - x) * dt + std * jnp.sqrt(dt) * noise
         return x_next, x_next

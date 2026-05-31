@@ -4,6 +4,7 @@ Structural tests (shapes, finite values) run fast.
 The synthetic recovery test uses a very simple 1D-style posterior
 (no plume physics) to verify the sampler explores and accepts proposals.
 """
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -16,9 +17,12 @@ KEY = jax.random.PRNGKey(99)
 
 def _priors():
     return Priors(
-        source_x_std=50.0, source_y_std=50.0,
-        log_s_std=2.0, background_std=5.0,
-        sigma2_alpha=2.0, sigma2_beta=0.5,
+        source_x_std=50.0,
+        source_y_std=50.0,
+        log_s_std=2.0,
+        background_std=5.0,
+        sigma2_alpha=2.0,
+        sigma2_beta=0.5,
     )
 
 
@@ -29,8 +33,10 @@ def _gibbs():
 def _toy_coupling(T=20, N=3):
     """Fixed coupling matrix — no plume physics, just a constant A for testing."""
     A = jnp.ones((T, N)) * 1e-3
+
     def coupling_fn(x):  # noqa: ignore x, return fixed A
         return A
+
     return coupling_fn, T, N
 
 

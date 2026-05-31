@@ -78,11 +78,13 @@ def test_coupling_matrix_shape():
     src = SourceLocation(0.0, 0.0, 1.0)
     T, N = 30, 5
     wind = _constant_wind(T=T)
-    sensors = jnp.column_stack([
-        jnp.linspace(50, 300, N),
-        jnp.zeros(N),
-        jnp.ones(N),
-    ])
+    sensors = jnp.column_stack(
+        [
+            jnp.linspace(50, 300, N),
+            jnp.zeros(N),
+            jnp.ones(N),
+        ]
+    )
     A = temporal_gridfree_coupling_matrix(src, sensors, wind)
     assert A.shape == (T, N)
 
