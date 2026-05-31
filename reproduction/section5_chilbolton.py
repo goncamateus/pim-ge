@@ -33,8 +33,8 @@ import jax.numpy as jnp
 import numpy as np
 
 try:
-    import matplotlib.pyplot as plt
     import matplotlib.patches as mpatches
+    import matplotlib.pyplot as plt
     from scipy.stats import gaussian_kde
 
     HAS_MPL = True
