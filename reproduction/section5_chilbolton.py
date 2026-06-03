@@ -35,6 +35,7 @@ import numpy as np
 try:
     import matplotlib.patches as mpatches
     import matplotlib.pyplot as plt
+    import matplotlib.ticker
     from scipy.stats import gaussian_kde
 
     HAS_MPL = True
@@ -311,6 +312,22 @@ def plot_figure7(data1: dict, data2: dict):
             label=f"Source {sn}",
         )
 
+    # Plotting-area rectangles used for Figure 9 (Source 1 blue solid, Source 2 red dashed)
+    for sn, edge, style, half in [(1, "blue", "-", (120, 110)), (2, "red", "--", (150, 150))]:
+        loc = srcs[f"source_{sn}_location"]
+        hw, hh = half
+        rect = mpatches.Rectangle(
+            (loc[0] - hw, loc[1] - hh),
+            2 * hw,
+            2 * hh,
+            fill=False,
+            edgecolor=edge,
+            linestyle=style,
+            lw=1.5,
+            label=f"Source {sn} plot area",
+        )
+        ax.add_patch(rect)
+
     ax.set_xlabel("x (m)")
     ax.set_ylabel("y (m)")
     ax.legend(fontsize=7, loc="upper left", ncol=2)
@@ -343,6 +360,8 @@ def plot_figure8(results1: list, results2: list, data1: dict, data2: dict):
         labels = [r["label"] for r in results]
         for row, (rk, rl, tk) in enumerate(zip(row_keys, row_labels, true_keys)):
             ax = axes[row, col]
+            ax.yaxis.set_major_formatter(matplotlib.ticker.ScalarFormatter(useMathText=True))
+            ax.ticklabel_format(axis="y", style="sci", scilimits=(-2, 2))
             boxes = [r[rk] for r in results]
             bp = ax.boxplot(
                 boxes,
