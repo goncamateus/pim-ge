@@ -26,9 +26,8 @@ import numpy as np
 
 try:
     import matplotlib.pyplot as plt
-    from matplotlib.colors import LogNorm
     import matplotlib.ticker
-    from mpl_toolkits.mplot3d import Axes3D
+    from matplotlib.colors import LogNorm
 
     HAS_MPL = True
 except ImportError:
@@ -37,7 +36,7 @@ except ImportError:
 from pim_ge import GibbsSamplers, Priors, SourceLocation, WindField, mwg_scan
 from pim_ge.forward.plume import temporal_gridfree_coupling_matrix
 from pim_ge.forward.sensors import circle_of_sensors, temporal_sensors_measurements
-from pim_ge.forward.wind import wind_speed, wind_direction_sinusoidal
+from pim_ge.forward.wind import wind_direction_sinusoidal, wind_speed
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 KEY = jax.random.PRNGKey(42)
@@ -97,6 +96,11 @@ MEAS_ERROR_VAR = 1e-6
 
 # Per-level box colours (Low / M / High) for Figures 4 & 5
 LEVEL_COLORS = ["steelblue", "indianred", "darkorange"]
+
+if HAS_MPL:
+    FORMATTER = matplotlib.ticker.ScalarFormatter(useMathText=True)
+    FORMATTER.set_scientific(True)
+    FORMATTER.set_powerlimits((-1, 1))
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -494,7 +498,7 @@ def plot_figures_4_5(all_results: dict):
 
             for row, param in enumerate(params):
                 ax = axes[row, col]
-                ax.yaxis.set_major_formatter(matplotlib.ticker.ScalarFormatter(useMathText=True))
+                ax.yaxis.set_major_formatter(FORMATTER)
                 ax.ticklabel_format(axis="y", style="sci", scilimits=(-2, 2))
                 boxes = [[r[param] for r in sweep[lv]] for lv in levels]
                 labels = [
@@ -625,7 +629,7 @@ def plot_figure6(misspec_results: dict):
             if col > 0:
                 ax.tick_params(labelleft=False)
                 ax.set_ylabel("")
-            ax.yaxis.set_major_formatter(matplotlib.ticker.ScalarFormatter(useMathText=True))
+            ax.yaxis.set_major_formatter(FORMATTER)
             ax.ticklabel_format(axis="y", style="sci", scilimits=(-2, 2))
             if row == 0 and col == 0:
                 ax.legend(

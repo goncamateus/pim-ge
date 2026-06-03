@@ -97,6 +97,11 @@ MODELS = [
 _CMAP = plt.cm.get_cmap("tab10") if HAS_MPL else None
 MODEL_COLORS = {m[0]: f"C{i % 10}" for i, m in enumerate(MODELS)}
 
+if HAS_MPL:
+    FORMATTER = matplotlib.ticker.ScalarFormatter(useMathText=True)
+    FORMATTER.set_scientific(True)
+    FORMATTER.set_powerlimits((-1, 1))
+
 
 # ── Data loading ──────────────────────────────────────────────────────────────
 
@@ -360,7 +365,7 @@ def plot_figure8(results1: list, results2: list, data1: dict, data2: dict):
         labels = [r["label"] for r in results]
         for row, (rk, rl, tk) in enumerate(zip(row_keys, row_labels, true_keys)):
             ax = axes[row, col]
-            ax.yaxis.set_major_formatter(matplotlib.ticker.ScalarFormatter(useMathText=True))
+            ax.yaxis.set_major_formatter(FORMATTER)
             ax.ticklabel_format(axis="y", style="sci", scilimits=(-2, 2))
             boxes = [r[rk] for r in results]
             bp = ax.boxplot(
