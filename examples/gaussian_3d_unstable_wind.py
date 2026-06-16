@@ -22,46 +22,19 @@ from pim_ge.forward.momentum import JetSource
 from pim_ge.forward.plume import temporal_gridfree_coupling_matrix
 from pim_ge.forward.wind import wind_direction, wind_speed
 
-EMISSION_RATE = 0.9  # [kg/s] source strength multiplied into the unit coupling matrix A
-SOURCE_Z = 25.0  # [m] release height of the point source
-MIXING_HEIGHT = 300.0  # [m] boundary-layer ceiling — well above SOURCE_Z for offshore chimney
-CORE_FRAC = 0.01  # fraction of each frame's peak concentration used as the scatter-cloud cutoff
-
-START_X = 0  # [m] grid lower x bound (plume only evaluated downwind of the source)
-END_X = 50.0  # [m] grid upper x bound
-NX = 40  # grid points along x
-
-START_Y = -25  # [m] grid lower y bound (crosswind)
-END_Y = 25.0  # [m] grid upper y bound
-NY = 40  # grid points along y
-
-START_Z = 0.0  # [m] grid lower z bound (sea/ground level) — plume can spread below the source
-END_Z = 50  # [m] grid upper z bound
-NZ = 35  # grid points along z (denser -> fuller-looking 3D cloud)
-
-# OU wind parameters — unstable in both scale and direction
-SPEED_MEAN = 2.0  # [m/s] OU mean-reversion level for wind speed
-SPEED_STD = 2.0  # [m/s] OU diffusion std for wind speed (large relative to mean -> bursty)
-SPEED_THETA = 0.5  # OU mean-reversion rate for wind speed (large -> fast relaxation/noisy)
-DIR_MEAN = 0.0  # [rad] OU mean-reversion level for wind direction
-DIR_STD = 0.05  # [rad] OU diffusion std for wind direction (small -> slow meander)
-DIR_THETA = 0.01  # OU mean-reversion rate for wind direction (small -> long, smooth drifts)
-
-JET_SPEED = 20.0  # [m/s] optional fixed-speed jet source (0 -> no jet)
-JET_ANGLE = 15.0  # [deg] optional jet exit angle (0 -> horizontal)
-JET_DIAMETER = 0.2  # [m] optional jet diameter
-
 
 def parse_args():
-    """Parse CLI flags for stability class, frame count, playback fps, RNG seed, display mode.
+    """Parse CLI flags: stability class, frame/playback/RNG controls, and all physical/grid/OU/jet parameters.
 
     Returns
     -------
     argparse.Namespace
-        `stability_class` (one of "A"-"F"), `frames` (number of OU
-        timesteps simulated), `fps` (playback rate / animation interval),
-        `seed` (PRNG seed for the wind realization), `show` (force an
-        interactive window even if a video file was saved).
+        `stability_class`, `frames`, `fps`, `seed`, `show`, plus
+        `emission_rate`, `source_z`, `mixing_height`, `core_frac`; grid
+        bounds/resolution `start_x`/`end_x`/`nx`, `start_y`/`end_y`/`ny`,
+        `start_z`/`end_z`/`nz`; OU wind parameters `speed_mean`/`speed_std`/
+        `speed_theta`, `dir_mean`/`dir_std`/`dir_theta`; and jet parameters
+        `jet_speed`/`jet_angle`/`jet_diameter`.
     """
     p = argparse.ArgumentParser()
     p.add_argument("--class", dest="stability_class", default="A", choices=list("ABCDEF"))
@@ -69,26 +42,110 @@ def parse_args():
     p.add_argument("--fps", type=int, default=10)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--show", action="store_true")
+
+    p.add_argument(
+        "--emission-rate",
+        type=float,
+        default=0.9,
+        help="source strength s [kg/s], multiplied into the unit coupling matrix A",
+    )
+    p.add_argument("--source-z", type=float, default=25.0, help="release height [m] of the point source")
+    p.add_argument(
+        "--mixing-height",
+        type=float,
+        default=300.0,
+        help="boundary-layer ceiling [m] — keep well above --source-z for an offshore chimney",
+    )
+    p.add_argument(
+        "--core-frac",
+        type=float,
+        default=0.01,
+        help="fraction of each frame's peak concentration used as the scatter-cloud cutoff",
+    )
+
+    p.add_argument(
+        "--start-x", type=float, default=0.0, help="grid lower x bound [m] (downwind of the source)"
+    )
+    p.add_argument("--end-x", type=float, default=50.0, help="grid upper x bound [m]")
+    p.add_argument("--nx", type=int, default=40, help="grid points along x")
+
+    p.add_argument("--start-y", type=float, default=-25.0, help="grid lower y bound [m] (crosswind)")
+    p.add_argument("--end-y", type=float, default=25.0, help="grid upper y bound [m]")
+    p.add_argument("--ny", type=int, default=40, help="grid points along y")
+
+    p.add_argument(
+        "--start-z",
+        type=float,
+        default=0.0,
+        help="grid lower z bound [m] (sea/ground level — plume can spread below the source)",
+    )
+    p.add_argument("--end-z", type=float, default=50.0, help="grid upper z bound [m]")
+    p.add_argument(
+        "--nz", type=int, default=35, help="grid points along z (denser -> fuller-looking 3D cloud)"
+    )
+
+    p.add_argument(
+        "--speed-mean", type=float, default=2.0, help="OU mean-reversion level for wind speed [m/s]"
+    )
+    p.add_argument(
+        "--speed-std",
+        type=float,
+        default=2.0,
+        help="OU diffusion std for wind speed [m/s] (large relative to mean -> bursty)",
+    )
+    p.add_argument(
+        "--speed-theta",
+        type=float,
+        default=0.5,
+        help="OU mean-reversion rate for wind speed (large -> fast relaxation/noisy)",
+    )
+    p.add_argument(
+        "--dir-mean", type=float, default=0.0, help="OU mean-reversion level for wind direction [rad]"
+    )
+    p.add_argument(
+        "--dir-std",
+        type=float,
+        default=0.05,
+        help="OU diffusion std for wind direction [rad] (small -> slow meander)",
+    )
+    p.add_argument(
+        "--dir-theta",
+        type=float,
+        default=0.01,
+        help="OU mean-reversion rate for wind direction (small -> long, smooth drifts)",
+    )
+
+    p.add_argument(
+        "--jet-speed", type=float, default=20.0, help="jet exit speed [m/s]; 0 = passive (no jet)"
+    )
+    p.add_argument("--jet-angle", type=float, default=15.0, help="jet exit direction [deg, world frame]")
+    p.add_argument("--jet-diameter", type=float, default=0.2, help="jet diameter [m] for L_relax")
     return p.parse_args()
 
 
-def build_grid():
+def build_grid(args):
     """Build the evaluation grid the plume concentration is sampled on.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed CLI flags (from `parse_args`); uses `start_x`/`end_x`/`nx`,
+        `start_y`/`end_y`/`ny`, `start_z`/`end_z`/`nz`.
 
     Returns
     -------
     tuple
-        `(x, y, z, XX, YY, ZZ)` — 1D axis arrays (`NX`, `NY`, `NZ` points)
-        and their `(NX, NY, NZ)` meshgrid, `indexing="ij"`. Unlike
+        `(x, y, z, XX, YY, ZZ)` — 1D axis arrays (`nx`, `ny`, `nz` points)
+        and their `(nx, ny, nz)` meshgrid, `indexing="ij"`. Unlike
         `gaussian_3d.py`'s grid (centred at the source, valid for any wind
-        direction), this grid spans only `[START_X, END_X]` downwind of the
+        direction), this grid spans only `[start_x, end_x]` downwind of the
         source — wind direction here only meanders slightly around 0
-        (`DIR_STD`/`DIR_THETA` are small), so the plume never needs to be
-        rendered behind the source.
+        (`--dir-std`/`--dir-theta` are small by default), so the plume never
+        needs to be rendered behind the source.
     """
-    x = jnp.linspace(START_X, END_X, NX)
-    y = jnp.linspace(START_Y, END_Y, NY)
-    z = jnp.linspace(START_Z, END_Z, NZ)
+    x = jnp.linspace(args.start_x, args.end_x, args.nx)
+    y = jnp.linspace(args.start_y, args.end_y, args.ny)
+    z = jnp.linspace(args.start_z, args.end_z, args.nz)
     XX, YY, ZZ = jnp.meshgrid(x, y, z, indexing="ij")
     return x, y, z, XX, YY, ZZ
 
@@ -98,9 +155,9 @@ def main():
 
     Pipeline: parse args -> simulate wind speed and direction as independent
     Ornstein-Uhlenbeck processes (`forward.wind.wind_speed`,
-    `forward.wind.wind_direction`) using the `SPEED_*`/`DIR_*` constants ->
-    evaluate `temporal_gridfree_coupling_matrix` once for the whole grid x
-    all frames -> animate a 3D scatter cloud (thresholded by `CORE_FRAC` of
+    `forward.wind.wind_direction`) using the `--speed-*`/`--dir-*` CLI flags
+    -> evaluate `temporal_gridfree_coupling_matrix` once for the whole grid x
+    all frames -> animate a 3D scatter cloud (thresholded by `--core-frac` of
     each frame's peak) alongside a ground-footprint heatmap and a vertical
     cross-section at y=0 -> save as MP4 (falls back to GIF, then to an
     interactive window if neither encoder is available). Unlike
@@ -112,27 +169,31 @@ def main():
     T = args.frames
     cls = args.stability_class
 
-    source = SourceLocation(x=0.0, y=0.0, z=SOURCE_Z)
+    source = SourceLocation(x=0.0, y=0.0, z=args.source_z)
 
     # Wind: OU speed and OU direction — independent keys, unstable in both
     key = jax.random.PRNGKey(args.seed)
     key_speed, key_dir = jax.random.split(key)
-    speeds = wind_speed(key_speed, T, mean=SPEED_MEAN, std=SPEED_STD, theta=SPEED_THETA)
-    directions = wind_direction(key_dir, T, mean=DIR_MEAN, std=DIR_STD, theta=DIR_THETA)
+    speeds = wind_speed(
+        key_speed, T, mean=args.speed_mean, std=args.speed_std, theta=args.speed_theta
+    )
+    directions = wind_direction(
+        key_dir, T, mean=args.dir_mean, std=args.dir_std, theta=args.dir_theta
+    )
     wind = WindField(speed=speeds, direction=directions)
 
-    x_vals, y_vals, z_vals, XX, YY, ZZ = build_grid()
+    x_vals, y_vals, z_vals, XX, YY, ZZ = build_grid(args)
     points = jnp.stack([XX.ravel(), YY.ravel(), ZZ.ravel()], axis=1)
 
     # Optional momentum-carrying source: fixed exit direction in the world frame.
     jet = None
-    if JET_SPEED > 0.0:
-        ang = jnp.deg2rad(JET_ANGLE)
+    if args.jet_speed > 0.0:
+        ang = jnp.deg2rad(args.jet_angle)
         jet = JetSource(
             source,
-            vx=float(JET_SPEED * jnp.cos(ang)),
-            vy=float(JET_SPEED * jnp.sin(ang)),
-            diameter=JET_DIAMETER,
+            vx=float(args.jet_speed * jnp.cos(ang)),
+            vy=float(args.jet_speed * jnp.sin(ang)),
+            diameter=args.jet_diameter,
         )
 
     print(f"Computing {T} timesteps, class {cls}...", flush=True)
@@ -140,12 +201,12 @@ def main():
         source,
         points,
         wind,
-        mixing_height=MIXING_HEIGHT,
+        mixing_height=args.mixing_height,
         scheme="Briggs",
         stability_class=cls,
         jet=jet,
     )  # (T, NX*NY*NZ)
-    conc_all = np.array(A * EMISSION_RATE)
+    conc_all = np.array(A * args.emission_rate)
     print(f"Done. Global peak: {conc_all.max():.1f} ppm")
 
     speeds_np = np.array(speeds)
@@ -166,8 +227,8 @@ def main():
     fig, ax3, ax_xy, ax_xz, title = build_figure()
 
     # Build colorbars from first frame so axes are set up once
-    fp0 = conc_all[0].reshape(NX, NY, NZ).max(axis=2)
-    xz0 = conc_all[0].reshape(NX, NY, NZ)[:, NY // 2, :]
+    fp0 = conc_all[0].reshape(args.nx, args.ny, args.nz).max(axis=2)
+    xz0 = conc_all[0].reshape(args.nx, args.ny, args.nz)[:, args.ny // 2, :]
     init_colorbars(ax_xy, ax_xz, Xg, Yg, Zg, fp0, xz0, NORM)
 
     def _setup_ax3(t):
@@ -180,15 +241,19 @@ def main():
         ax3.set_xlabel("x (m)", labelpad=4, color="white", fontsize=8)
         ax3.set_ylabel("y (m)", labelpad=4, color="white", fontsize=8)
         ax3.set_zlabel("z (m)", labelpad=4, color="white", fontsize=8)
-        ax3.set_xlim(START_X - 10, END_X + 10)
-        ax3.set_ylim(START_Y - 10, END_Y + 10)
-        ax3.set_zlim(START_Z - 10, END_Z + 10)
+        ax3.set_xlim(args.start_x - 10, args.end_x + 10)
+        ax3.set_ylim(args.start_y - 10, args.end_y + 10)
+        ax3.set_zlim(args.start_z - 10, args.end_z + 10)
         ax3.set_box_aspect(
-            (END_X - START_X + 20, END_Y - START_Y + 20, END_Z - START_Z + 20)
+            (
+                args.end_x - args.start_x + 20,
+                args.end_y - args.start_y + 20,
+                args.end_z - args.start_z + 20,
+            )
         )  # true proportions, not auto-stretched
         ax3.tick_params(colors="white", labelsize=7)
         azim = -180 * (t / max(T - 1, 1)) - 30  # full half-turn -> see both +y/-y sides
-        elev = SOURCE_Z + 10 * np.sin(
+        elev = source.z + 10 * np.sin(
             2 * np.pi * 2 * t / max(T - 1, 1)
         )  # sweep -> see both +z/-z sides
         ax3.view_init(elev=elev, azim=azim)
@@ -207,9 +272,9 @@ def main():
             Empty list (artists are redrawn via `cla()`/`clear()`, not blit).
         """
         conc_flat = conc_all[t]
-        conc_3d = conc_flat.reshape(NX, NY, NZ)
+        conc_3d = conc_flat.reshape(args.nx, args.ny, args.nz)
         peak = conc_flat.max()
-        threshold = max(peak * CORE_FRAC, VMIN)
+        threshold = max(peak * args.core_frac, VMIN)
 
         mask = conc_flat > threshold
         idx = np.where(mask)[0]
@@ -263,9 +328,9 @@ def main():
         ax_xz.clear()
         ax_xz.set_facecolor("#0e0e0e")
         ax_xz.pcolormesh(
-            Xg, Zg, conc_3d[:, NY // 2, :].T, cmap="inferno", norm=NORM, shading="auto"
+            Xg, Zg, conc_3d[:, args.ny // 2, :].T, cmap="inferno", norm=NORM, shading="auto"
         )
-        ax_xz.axhline(SOURCE_Z, color="cyan", lw=1, ls="--")
+        ax_xz.axhline(source.z, color="cyan", lw=1, ls="--")
         ax_xz.set_xlabel("x (m)", fontsize=8, color="white")
         ax_xz.set_ylabel("z (m)", fontsize=8, color="white")
         ax_xz.set_title("Vertical cross-section y=0", fontsize=8, color="white")

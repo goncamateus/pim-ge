@@ -54,27 +54,33 @@ narrower and downwind-only since direction barely drifts from 0.
 uv run --extra examples examples/gaussian_3d_unstable_wind.py --class A --frames 100 --fps 10 --seed 0
 ```
 
-### Constants
+Every physical/grid/OU/jet parameter is a CLI flag (no module constants) —
+run `--help` for the full list with defaults. The notable ones:
 
-| Constant | Meaning |
-|---|---|
-| `EMISSION_RATE` | Source strength `s` [kg/s]. |
-| `SOURCE_Z` | Release height [m] of the point source. |
-| `MIXING_HEIGHT` | Boundary-layer ceiling [m] — set low here so ground/ceiling reflections dominate close to the source. |
-| `CORE_FRAC` | Same scatter-cloud cutoff fraction as in `gaussian_3d.py`. |
-| `START_X`/`END_X`, `NX` | Downwind grid bounds [m] and resolution along x. |
-| `START_Y`/`END_Y`, `NY` | Crosswind grid bounds [m] and resolution along y. |
-| `START_Z`/`END_Z`, `NZ` | Vertical grid bounds [m] (centred on `SOURCE_Z`) and resolution along z. |
-| `SPEED_MEAN`, `SPEED_STD`, `SPEED_THETA` | OU mean, diffusion std, and mean-reversion rate for wind **speed** [m/s]. Higher `SPEED_STD`/`SPEED_THETA` → burstier speed. |
-| `DIR_MEAN`, `DIR_STD`, `DIR_THETA` | OU mean, diffusion std, and mean-reversion rate for wind **direction** [rad]. Small `DIR_STD`/`DIR_THETA` → slow, smooth meander rather than full rotation. |
-| `STABILITY_LABELS` | Same as in `gaussian_3d.py`. |
+### CLI flags
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--emission-rate` | `0.9` | Source strength `s` [kg/s]. |
+| `--source-z` | `25.0` | Release height [m] of the point source. |
+| `--mixing-height` | `300.0` | Boundary-layer ceiling [m] — kept low so ground/ceiling reflections dominate close to the source. |
+| `--core-frac` | `0.01` | Same scatter-cloud cutoff fraction as in `gaussian_3d.py`. |
+| `--start-x`/`--end-x`, `--nx` | `0.0`/`50.0`, `40` | Downwind grid bounds [m] and resolution along x. |
+| `--start-y`/`--end-y`, `--ny` | `-25.0`/`25.0`, `40` | Crosswind grid bounds [m] and resolution along y. |
+| `--start-z`/`--end-z`, `--nz` | `0.0`/`50.0`, `35` | Vertical grid bounds [m] and resolution along z. |
+| `--speed-mean`/`--speed-std`/`--speed-theta` | `2.0`/`2.0`/`0.5` | OU mean, diffusion std, and mean-reversion rate for wind **speed** [m/s]. Higher std/theta → burstier speed. |
+| `--dir-mean`/`--dir-std`/`--dir-theta` | `0.0`/`0.05`/`0.01` | OU mean, diffusion std, and mean-reversion rate for wind **direction** [rad]. Small std/theta → slow, smooth meander rather than full rotation. |
+| `--jet-speed`/`--jet-angle`/`--jet-diameter` | `20.0`/`15.0`/`0.2` | Optional momentum-carrying source: exit speed [m/s], exit direction [deg, world frame], diameter [m] for `L_relax`. `--jet-speed 0` disables the jet. |
+
+`STABILITY_LABELS` (imported from `_viz.py`) is the same Pasquill–Gifford
+class-name lookup as in `gaussian_3d.py`.
 
 ### Functions
 
 | Function | What it does |
 |---|---|
-| `parse_args()` | Reads `--class`, `--frames`, `--fps`, `--seed`, `--show` from the CLI. |
-| `build_grid()` | Builds the downwind-only evaluation grid (`START_*`/`END_*`/`N*` constants). |
+| `parse_args()` | Reads `--class`, `--frames`, `--fps`, `--seed`, `--show`, and the full set of CLI flags above. |
+| `build_grid(args)` | Builds the downwind-only evaluation grid from `args.start_*`/`args.end_*`/`args.n*`. |
 | `main()` | Simulates the OU wind realization, evaluates the plume for all frames at once, builds the figure, and saves/shows the animation. |
-| `main._setup_ax3()` | Resets the 3D axes' styling/limits/camera angle after each per-frame `cla()`. |
+| `main._setup_ax3(t)` | Resets the 3D axes' styling/limits/camera angle after each per-frame `cla()`. |
 | `main.update(t)` | Redraws frame `t`: 3D scatter cloud, ground-footprint heatmap, vertical cross-section, and the title bar (current sampled direction/speed/peak). |
