@@ -15,14 +15,14 @@ supplies only what's genuinely its own: grid domain, wind model, camera
 motion (static vs. orbiting), and the alpha-ramp/dot-size constants for
 its scatter cloud — threaded into the shared helpers as arguments.
 
-## `gaussian_3d.py` — deterministic wind sweep
+## `rotating_source.py` — deterministic wind sweep
 
 Wind speed is constant; wind direction sweeps a full 0→360° circle over the
 animation. Demonstrates the plume's shape for a chosen Pasquill–Gifford
 stability class as it rotates around a fixed source.
 
 ```bash
-uv run --extra examples examples/gaussian_3d.py --class D --frames 100 --fps 10
+uv run --extra examples examples/rotating_source.py --class D --frames 100 --fps 10
 ```
 
 ### Constants
@@ -46,7 +46,7 @@ uv run --extra examples examples/gaussian_3d.py --class D --frames 100 --fps 10
 | `main()` | Simulates the wind sweep, evaluates the plume for all frames at once, builds the figure, and saves/shows the animation. |
 | `main.update(t)` | Redraws frame `t`: calls `_viz.scatter_mask`/`cloud_rgba` (thresholded by `CORE_FRAC`, fixed alpha ramp), `_viz.setup_axes3d` (static camera `elev=24, azim=-55`), `_viz.draw_3d_scatter`/`draw_xy_panel`/`draw_xz_panel`, and `_viz.frame_title`. |
 
-## `gaussian_3d_unstable_wind.py` — stochastic wind (Ornstein-Uhlenbeck)
+## `fixed_source.py` — stochastic wind (Ornstein-Uhlenbeck)
 
 Both wind speed and direction evolve as independent Ornstein-Uhlenbeck (OU)
 processes (`pim_ge.forward.wind.wind_speed`, `wind_direction`), so the
@@ -54,7 +54,7 @@ plume meanders and pulses instead of sweeping a clean circle. Grid is
 narrower and downwind-only since direction barely drifts from 0.
 
 ```bash
-uv run --extra examples examples/gaussian_3d_unstable_wind.py --class A --frames 100 --fps 10 --seed 0
+uv run --extra examples examples/fixed_source.py --class A --frames 100 --fps 10 --seed 0
 ```
 
 Every physical/grid/OU/jet parameter is a CLI flag (no module constants) —
@@ -67,7 +67,7 @@ run `--help` for the full list with defaults. The notable ones:
 | `--emission-rate` | `0.9` | Source strength `s` [kg/s]. |
 | `--source-z` | `25.0` | Release height [m] of the point source. |
 | `--mixing-height` | `300.0` | Boundary-layer ceiling [m] — kept low so ground/ceiling reflections dominate close to the source. |
-| `--core-frac` | `0.01` | Same scatter-cloud cutoff fraction as in `gaussian_3d.py`. |
+| `--core-frac` | `0.01` | Same scatter-cloud cutoff fraction as in `rotating_source.py`. |
 | `--start-x`/`--end-x`, `--nx` | `0.0`/`50.0`, `40` | Downwind grid bounds [m] and resolution along x. |
 | `--start-y`/`--end-y`, `--ny` | `-25.0`/`25.0`, `40` | Crosswind grid bounds [m] and resolution along y. |
 | `--start-z`/`--end-z`, `--nz` | `0.0`/`50.0`, `35` | Vertical grid bounds [m] and resolution along z. |
@@ -76,7 +76,7 @@ run `--help` for the full list with defaults. The notable ones:
 | `--jet-speed`/`--jet-angle`/`--jet-diameter` | `20.0`/`15.0`/`0.2` | Optional momentum-carrying source: exit speed [m/s], exit direction [deg, world frame], diameter [m] for `L_relax`. `--jet-speed 0` disables the jet. |
 
 `STABILITY_LABELS` (imported from `_viz.py`) is the same Pasquill–Gifford
-class-name lookup as in `gaussian_3d.py`.
+class-name lookup as in `rotating_source.py`.
 
 ### Functions
 
@@ -85,4 +85,4 @@ class-name lookup as in `gaussian_3d.py`.
 | `parse_args()` | Reads `--class`, `--frames`, `--fps`, `--seed`, `--show`, and the full set of CLI flags above. |
 | `build_grid(args)` | Builds the downwind-only evaluation grid from `args.start_*`/`args.end_*`/`args.n*`. |
 | `main()` | Simulates the OU wind realization, evaluates the plume for all frames at once, builds the figure, and saves/shows the animation. |
-| `main.update(t)` | Redraws frame `t`: same `_viz` helpers as `gaussian_3d.py`, but with an orbiting camera (`elev`/`azim` computed from `t`, fed into `_viz.setup_axes3d`) and a different alpha ramp/dot size for `cloud_rgba`/`draw_3d_scatter`. |
+| `main.update(t)` | Redraws frame `t`: same `_viz` helpers as `rotating_source.py`, but with an orbiting camera (`elev`/`azim` computed from `t`, fed into `_viz.setup_axes3d`) and a different alpha ramp/dot size for `cloud_rgba`/`draw_3d_scatter`. |
