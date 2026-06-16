@@ -1,12 +1,16 @@
-"""3D Gaussian plume — choose stability class, animate T wind-direction timesteps.
+"""3D Gaussian plume — fixed source, unstable wind (OU speed + OU direction).
+
+Wind speed and direction both evolve as Ornstein-Uhlenbeck processes, so the
+plume meanders and pulses instead of sweeping a clean circle.
 
 Usage:
-    uv run examples/gaussian_3d.py --class D --frames 100 --fps 10
+    uv run examples/gaussian_3d_unstable_wind.py --class D --frames 100 --fps 10
 """
 
 import argparse
 import sys
 
+import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,14 +19,32 @@ from matplotlib.colors import LogNorm
 
 from pim_ge import SourceLocation, WindField
 from pim_ge.forward.plume import temporal_gridfree_coupling_matrix
+from pim_ge.forward.wind import wind_direction, wind_speed
 
-EMISSION_RATE = 0.1  # [kg/s] source strength multiplied into the unit coupling matrix A
-WIND_SPEED = 2.0  # [m/s] constant wind speed for every frame (only direction sweeps)
-SOURCE_Z = 5.0  # [m] release height of the point source
-MIXING_HEIGHT = 200.0  # [m] boundary-layer ceiling used by the inversion-layer reflection term
+EMISSION_RATE = 0.9  # [kg/s] source strength multiplied into the unit coupling matrix A
+SOURCE_Z = 10.0  # [m] release height of the point source
+MIXING_HEIGHT = 5.0  # [m] boundary-layer ceiling; low here so reflections dominate near-source
 CORE_FRAC = 0.04  # fraction of each frame's peak concentration used as the scatter-cloud cutoff
-NX = NY = 40  # grid points along x/y (ground plane)
-NZ = 20  # grid points along z (height)
+
+START_X = 0  # [m] grid lower x bound (plume only evaluated downwind of the source)
+END_X = 600.0  # [m] grid upper x bound
+NX = 40  # grid points along x
+
+START_Y = -200  # [m] grid lower y bound (crosswind)
+END_Y = 200.0  # [m] grid upper y bound
+NY = 40  # grid points along y
+
+START_Z = SOURCE_Z - 5.0  # [m] grid lower z bound, centred on source height
+END_Z = SOURCE_Z + 5.0  # [m] grid upper z bound
+NZ = 20  # grid points along z
+
+# OU wind parameters — unstable in both scale and direction
+SPEED_MEAN = 2.0  # [m/s] OU mean-reversion level for wind speed
+SPEED_STD = 2.0  # [m/s] OU diffusion std for wind speed (large relative to mean -> bursty)
+SPEED_THETA = 0.5  # OU mean-reversion rate for wind speed (large -> fast relaxation/noisy)
+DIR_MEAN = 0.0  # [rad] OU mean-reversion level for wind direction
+DIR_STD = 0.05  # [rad] OU diffusion std for wind direction (small -> slow meander)
+DIR_THETA = 0.01  # OU mean-reversion rate for wind direction (small -> long, smooth drifts)
 
 STABILITY_LABELS = {
     "A": "A — Very unstable",
@@ -35,20 +57,21 @@ STABILITY_LABELS = {
 
 
 def parse_args():
-    """Parse CLI flags for stability class, frame count, playback fps, and display mode.
+    """Parse CLI flags for stability class, frame count, playback fps, RNG seed, display mode.
 
     Returns
     -------
     argparse.Namespace
-        `stability_class` (one of "A"-"F"), `frames` (animation length /
-        number of wind directions sampled), `fps` (playback rate, also used
-        as the animation interval), `show` (force an interactive window even
-        if a video file was saved).
+        `stability_class` (one of "A"-"F"), `frames` (number of OU
+        timesteps simulated), `fps` (playback rate / animation interval),
+        `seed` (PRNG seed for the wind realization), `show` (force an
+        interactive window even if a video file was saved).
     """
     p = argparse.ArgumentParser()
-    p.add_argument("--class", dest="stability_class", default="D", choices=list("ABCDEF"))
+    p.add_argument("--class", dest="stability_class", default="A", choices=list("ABCDEF"))
     p.add_argument("--frames", type=int, default=100)
     p.add_argument("--fps", type=int, default=10)
+    p.add_argument("--seed", type=int, default=0)
     p.add_argument("--show", action="store_true")
     return p.parse_args()
 
@@ -60,27 +83,34 @@ def build_grid():
     -------
     tuple
         `(x, y, z, XX, YY, ZZ)` — 1D axis arrays (`NX`, `NY`, `NZ` points)
-        and their `(NX, NY, NZ)` meshgrid, `indexing="ij"`. The grid is a
-        600x600 m square centred on the (fixed) source so it stays valid as
-        wind direction sweeps the full 360 degrees.
+        and their `(NX, NY, NZ)` meshgrid, `indexing="ij"`. Unlike
+        `gaussian_3d.py`'s grid (centred at the source, valid for any wind
+        direction), this grid spans only `[START_X, END_X]` downwind of the
+        source — wind direction here only meanders slightly around 0
+        (`DIR_STD`/`DIR_THETA` are small), so the plume never needs to be
+        rendered behind the source.
     """
-    x = jnp.linspace(-300.0, 300.0, NX)
-    y = jnp.linspace(-300.0, 300.0, NY)
-    z = jnp.linspace(0.2, 60.0, NZ)
+    x = jnp.linspace(START_X, END_X, NX)
+    y = jnp.linspace(START_Y, END_Y, NY)
+    z = jnp.linspace(START_Z, END_Z, NZ)
     XX, YY, ZZ = jnp.meshgrid(x, y, z, indexing="ij")
     return x, y, z, XX, YY, ZZ
 
 
 def main():
-    """Compute the plume over all frames, build the 3-panel figure, and save/show the animation.
+    """Simulate an OU wind realization, compute the plume over all frames, animate it.
 
-    Pipeline: parse args -> build a fixed wind-direction sweep (0 to 2*pi
-    over `T` frames at constant `WIND_SPEED`) -> evaluate
-    `temporal_gridfree_coupling_matrix` once for the whole grid x all frames
-    -> animate a 3D scatter cloud (thresholded by `CORE_FRAC` of each
-    frame's peak) alongside a ground-footprint heatmap and a vertical
+    Pipeline: parse args -> simulate wind speed and direction as independent
+    Ornstein-Uhlenbeck processes (`forward.wind.wind_speed`,
+    `forward.wind.wind_direction`) using the `SPEED_*`/`DIR_*` constants ->
+    evaluate `temporal_gridfree_coupling_matrix` once for the whole grid x
+    all frames -> animate a 3D scatter cloud (thresholded by `CORE_FRAC` of
+    each frame's peak) alongside a ground-footprint heatmap and a vertical
     cross-section at y=0 -> save as MP4 (falls back to GIF, then to an
-    interactive window if neither encoder is available).
+    interactive window if neither encoder is available). Unlike
+    `gaussian_3d.py`'s deterministic direction sweep, both wind speed and
+    direction meander and pulse here, so the plume drifts and pulses instead
+    of sweeping a clean circle.
     """
     args = parse_args()
     T = args.frames
@@ -88,12 +118,12 @@ def main():
 
     source = SourceLocation(x=0.0, y=0.0, z=SOURCE_Z)
 
-    # Wind: constant speed, direction rotates 0 → 2π over T frames
-    directions = jnp.linspace(0.0, 2 * jnp.pi, T, endpoint=False)
-    wind = WindField(
-        speed=jnp.full((T,), WIND_SPEED),
-        direction=directions,
-    )
+    # Wind: OU speed and OU direction — independent keys, unstable in both
+    key = jax.random.PRNGKey(args.seed)
+    key_speed, key_dir = jax.random.split(key)
+    speeds = wind_speed(key_speed, T, mean=SPEED_MEAN, std=SPEED_STD, theta=SPEED_THETA)
+    directions = wind_direction(key_dir, T, mean=DIR_MEAN, std=DIR_STD, theta=DIR_THETA)
+    wind = WindField(speed=speeds, direction=directions)
 
     x_vals, y_vals, z_vals, XX, YY, ZZ = build_grid()
     points = jnp.stack([XX.ravel(), YY.ravel(), ZZ.ravel()], axis=1)
@@ -109,6 +139,9 @@ def main():
     )  # (T, NX*NY*NZ)
     conc_all = np.array(A * EMISSION_RATE)
     print(f"Done. Global peak: {conc_all.max():.1f} ppm")
+
+    speeds_np = np.array(speeds)
+    directions_np = np.array(directions)
 
     global_peak = conc_all.max()
     VMIN = max(global_peak * 0.001, 0.01)
@@ -155,9 +188,9 @@ def main():
         ax3.set_xlabel("x (m)", labelpad=4, color="white", fontsize=8)
         ax3.set_ylabel("y (m)", labelpad=4, color="white", fontsize=8)
         ax3.set_zlabel("z (m)", labelpad=4, color="white", fontsize=8)
-        ax3.set_xlim(-300, 300)
-        ax3.set_ylim(-300, 300)
-        ax3.set_zlim(0, 60)
+        ax3.set_xlim(START_X-10, END_X+10)
+        ax3.set_ylim(START_Y-10, END_Y+10)
+        ax3.set_zlim(START_Z-10, END_Z+10)
         ax3.tick_params(colors="white", labelsize=7)
         ax3.view_init(elev=24, azim=-55)
 
@@ -167,7 +200,7 @@ def main():
         Parameters
         ----------
         t : int
-            Frame index into `conc_all` / `directions`.
+            Frame index into `conc_all` / `speeds_np` / `directions_np`.
 
         Returns
         -------
@@ -237,16 +270,17 @@ def main():
         ax_xz.set_title("Vertical cross-section y=0", fontsize=8, color="white")
         ax_xz.tick_params(colors="white", labelsize=7)
 
-        deg = np.degrees(float(directions[t])) % 360
+        deg = np.degrees(float(directions_np[t])) % 360
+        spd = float(speeds_np[t])
         title.set_text(
             f"Class {STABILITY_LABELS[cls]}  |  "
-            f"t={t + 1}/{T}  dir={deg:.0f}°  u={WIND_SPEED} m/s  peak={peak:.1f} ppm"
+            f"t={t + 1}/{T}  dir={deg:.0f}°  u={spd:.1f} m/s  peak={peak:.1f} ppm"
         )
         return []
 
     anim = FuncAnimation(fig, update, frames=T, interval=max(50, 1000 // args.fps), repeat=True)
 
-    out_base = f"examples/plume_3d_class{cls}"
+    out_base = f"examples/plume_3d_unstable_wind_class{cls}"
     saved = False
     for ext, WriterCls, kw in [
         (".mp4", FFMpegWriter, {"fps": args.fps}),
