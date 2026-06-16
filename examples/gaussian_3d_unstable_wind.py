@@ -18,6 +18,7 @@ from matplotlib.animation import FFMpegWriter, FuncAnimation, PillowWriter
 from matplotlib.colors import LogNorm
 
 from pim_ge import SourceLocation, WindField
+from pim_ge.forward.momentum import JetSource
 from pim_ge.forward.plume import temporal_gridfree_coupling_matrix
 from pim_ge.forward.wind import wind_direction, wind_speed
 
@@ -27,15 +28,15 @@ MIXING_HEIGHT = 300.0  # [m] boundary-layer ceiling — well above SOURCE_Z for 
 CORE_FRAC = 0.01  # fraction of each frame's peak concentration used as the scatter-cloud cutoff
 
 START_X = 0  # [m] grid lower x bound (plume only evaluated downwind of the source)
-END_X = 600.0  # [m] grid upper x bound
+END_X = 50.0  # [m] grid upper x bound
 NX = 40  # grid points along x
 
-START_Y = -200  # [m] grid lower y bound (crosswind)
-END_Y = 200.0  # [m] grid upper y bound
+START_Y = -25  # [m] grid lower y bound (crosswind)
+END_Y = 25.0  # [m] grid upper y bound
 NY = 40  # grid points along y
 
 START_Z = 0.0  # [m] grid lower z bound (sea/ground level) — plume can spread below the source
-END_Z = 100  # [m] grid upper z bound
+END_Z = 50  # [m] grid upper z bound
 NZ = 35  # grid points along z (denser -> fuller-looking 3D cloud)
 
 # OU wind parameters — unstable in both scale and direction
@@ -45,6 +46,10 @@ SPEED_THETA = 0.5  # OU mean-reversion rate for wind speed (large -> fast relaxa
 DIR_MEAN = 0.0  # [rad] OU mean-reversion level for wind direction
 DIR_STD = 0.05  # [rad] OU diffusion std for wind direction (small -> slow meander)
 DIR_THETA = 0.01  # OU mean-reversion rate for wind direction (small -> long, smooth drifts)
+
+JET_SPEED = 20.0  # [m/s] optional fixed-speed jet source (0 -> no jet)
+JET_ANGLE = 15.0  # [deg] optional jet exit angle (0 -> horizontal)
+JET_DIAMETER = 0.2  # [m] optional jet diameter
 
 STABILITY_LABELS = {
     "A": "A — Very unstable",
@@ -128,6 +133,17 @@ def main():
     x_vals, y_vals, z_vals, XX, YY, ZZ = build_grid()
     points = jnp.stack([XX.ravel(), YY.ravel(), ZZ.ravel()], axis=1)
 
+    # Optional momentum-carrying source: fixed exit direction in the world frame.
+    jet = None
+    if JET_SPEED > 0.0:
+        ang = jnp.deg2rad(JET_ANGLE)
+        jet = JetSource(
+            source,
+            vx=float(JET_SPEED * jnp.cos(ang)),
+            vy=float(JET_SPEED * jnp.sin(ang)),
+            diameter=JET_DIAMETER,
+        )
+
     print(f"Computing {T} timesteps, class {cls}...", flush=True)
     A = temporal_gridfree_coupling_matrix(
         source,
@@ -136,6 +152,7 @@ def main():
         mixing_height=MIXING_HEIGHT,
         scheme="Briggs",
         stability_class=cls,
+        jet=jet,
     )  # (T, NX*NY*NZ)
     conc_all = np.array(A * EMISSION_RATE)
     print(f"Done. Global peak: {conc_all.max():.1f} ppm")

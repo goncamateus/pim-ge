@@ -115,6 +115,36 @@ def test_coupling_decreases_with_distance():
     assert float(A[:, 0].mean()) > float(A[:, 1].mean())
 
 
+def test_jet_passive_reduction_matches_default():
+    # V_source == V_wind -> coupling identical to the passive (jet=None) model.
+    from pim_ge.forward.momentum import JetSource
+
+    src = SourceLocation(0.0, 0.0, 5.0)
+    wind = _constant_wind(speed=2.0, direction=0.0, T=8)
+    sensors = jnp.column_stack([jnp.linspace(20, 400, 6), jnp.zeros(6), jnp.full(6, 5.0)])
+    jet = JetSource(src, vx=2.0, vy=0.0, diameter=4.0)  # exactly V_wind
+    A_passive = temporal_gridfree_coupling_matrix(src, sensors, wind)
+    A_jet = temporal_gridfree_coupling_matrix(src, sensors, wind, jet=jet)
+    assert jnp.allclose(A_passive, A_jet, atol=1e-12)
+
+
+def test_jet_shifts_peak_crosswind():
+    # Cross-wind momentum moves the high-coupling cell off the wind axis.
+    from pim_ge.forward.momentum import JetSource
+
+    src = SourceLocation(0.0, 0.0, 5.0)
+    wind = _constant_wind(speed=2.0, direction=0.0, T=1)  # wind toward +x
+    # Sensor ring at fixed downwind distance, varying crosswind y.
+    ys = jnp.linspace(-60.0, 60.0, 25)
+    sensors = jnp.column_stack([jnp.full(25, 150.0), ys, jnp.full(25, 5.0)])
+    jet = JetSource(src, vx=2.0, vy=8.0, l_relax=60.0)  # strong +y momentum
+    A_passive = temporal_gridfree_coupling_matrix(src, sensors, wind)
+    A_jet = temporal_gridfree_coupling_matrix(src, sensors, wind, jet=jet)
+    # Passive peak on axis (y=0); jet peak shifted to +y.
+    assert abs(float(ys[jnp.argmax(A_passive[0])])) < 6.0
+    assert float(ys[jnp.argmax(A_jet[0])]) > 6.0
+
+
 def test_methane_ppm_conversion():
     assert float(methane_kg_m3_to_ppm(jnp.array(0.671))) == pytest.approx(1e6, rel=1e-5)
 

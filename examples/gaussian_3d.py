@@ -2,6 +2,7 @@
 
 Usage:
     uv run examples/gaussian_3d.py --class D --frames 100 --fps 10
+    uv run examples/gaussian_3d.py --class D --jet-speed 10 --jet-angle 60
 """
 
 import argparse
@@ -14,6 +15,7 @@ from matplotlib.animation import FFMpegWriter, FuncAnimation, PillowWriter
 from matplotlib.colors import LogNorm
 
 from pim_ge import SourceLocation, WindField
+from pim_ge.forward.momentum import JetSource
 from pim_ge.forward.plume import temporal_gridfree_coupling_matrix
 
 EMISSION_RATE = 0.1  # [kg/s] source strength multiplied into the unit coupling matrix A
@@ -51,6 +53,9 @@ def parse_args():
     p.add_argument("--frames", type=int, default=100)
     p.add_argument("--fps", type=int, default=10)
     p.add_argument("--show", action="store_true")
+    p.add_argument("--jet-speed", type=float, default=0.0, help="source exit speed [m/s]; 0 = passive")
+    p.add_argument("--jet-angle", type=float, default=0.0, help="exit direction [deg, world frame]")
+    p.add_argument("--jet-diameter", type=float, default=4.0, help="source diameter [m] for L_relax")
     return p.parse_args()
 
 
@@ -89,6 +94,17 @@ def main():
 
     source = SourceLocation(x=0.0, y=0.0, z=SOURCE_Z)
 
+    # Optional momentum-carrying source: fixed exit direction in the world frame.
+    jet = None
+    if args.jet_speed > 0.0:
+        ang = jnp.deg2rad(args.jet_angle)
+        jet = JetSource(
+            source,
+            vx=float(args.jet_speed * jnp.cos(ang)),
+            vy=float(args.jet_speed * jnp.sin(ang)),
+            diameter=args.jet_diameter,
+        )
+
     # Wind: constant speed, direction rotates 0 → 2π over T frames
     directions = jnp.linspace(0.0, 2 * jnp.pi, T, endpoint=False)
     wind = WindField(
@@ -107,6 +123,7 @@ def main():
         mixing_height=MIXING_HEIGHT,
         scheme="Briggs",
         stability_class=cls,
+        jet=jet,
     )  # (T, NX*NY*NZ)
     conc_all = np.array(A * EMISSION_RATE)
     print(f"Done. Global peak: {conc_all.max():.1f} ppm")
@@ -248,7 +265,7 @@ def main():
 
     anim = FuncAnimation(fig, update, frames=T, interval=max(50, 1000 // args.fps), repeat=True)
 
-    out_base = f"examples/plume_3d_class{cls}"
+    out_base = f"examples/plume_3d_class{cls}" + (f"_jet{int(args.jet_speed)}" if jet else "")
     saved = False
     for ext, WriterCls, kw in [
         (".mp4", FFMpegWriter, {"fps": args.fps}),

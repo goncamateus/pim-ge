@@ -12,6 +12,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
+from pim_ge.forward.momentum import JetSource, relaxation_time
 from pim_ge.forward.wind import WindField
 from pim_ge.utils.types import SourceLocation
 
@@ -295,6 +296,7 @@ def temporal_gridfree_coupling_matrix(
     tan_gamma_H: float = 1.0,
     tan_gamma_V: float = 1.0,
     source_half_width: float = 0.0,
+    jet: JetSource | None = None,
 ) -> Array:
     r"""Build the source-sensor coupling matrix `A` [ppm per kg/s].
 
@@ -323,6 +325,12 @@ def temporal_gridfree_coupling_matrix(
         Wind-direction roughness terms for the horizontal/vertical power law.
     source_half_width : float, default 0.0
         Virtual source offset `w` for the horizontal dispersion term.
+    jet : JetSource, optional
+        Momentum-carrying source (``forward/momentum.py``). When given, the
+        crosswind Gaussian is centred on the *bent* plume centreline instead of
+        the straight wind axis: a near-source jet that relaxes to passive
+        advection downwind. ``None`` (default) or ``V_source == V_wind`` leaves
+        `A` byte-identical to the passive model.
 
     Returns
     -------
@@ -366,6 +374,15 @@ def temporal_gridfree_coupling_matrix(
 
     downwind_mask = (x_down > 0.0).astype(jnp.float32)
     x_safe = jnp.where(x_down > 0.0, x_down, jnp.ones_like(x_down))
+
+    if jet is not None:
+        # Bend the centreline: shift the crosswind coordinate by the lateral
+        # centreline offset y_c(ξ) = b·τ·(1 - e^{-ξ/L}), L = U·τ, with ξ the
+        # downwind distance. b = 0 (V_source = V_wind) leaves y_cross unchanged.
+        _, b, tau, _, _ = relaxation_time(jet, wind.speed, wind.direction)
+        L = wind.speed * tau  # (T,)
+        y_center = (b * tau)[:, None] * (1.0 - jnp.exp(-x_safe / L[:, None]))
+        y_cross = y_cross - y_center
 
     if estimated and log_params is not None:
         a_H = jnp.exp(log_params[0])
