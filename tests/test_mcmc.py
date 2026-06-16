@@ -7,9 +7,9 @@ The synthetic recovery test uses a very simple 1D-style posterior
 
 import jax
 import jax.numpy as jnp
-import pytest
+
 from pim_ge.inverse.gibbs import GibbsSamplers
-from pim_ge.inverse.mcmc import ManifoldMALAWithinGibbs, build_log_posterior, mwg_scan
+from pim_ge.inverse.mcmc import build_log_posterior, inverse_hessian, mwg_scan, sqrt_inv_hess
 from pim_ge.inverse.priors import Priors
 
 KEY = jax.random.PRNGKey(99)
@@ -42,8 +42,6 @@ def _toy_coupling(T=20, N=3):
 
 def test_inverse_hessian_shape():
     P = _priors()
-    G = _gibbs()
-    sampler = ManifoldMALAWithinGibbs(P, G, step_size=0.01)
     x = jnp.zeros(7)
     bg = jnp.zeros(3)
     s2 = jnp.array(0.1)
@@ -51,25 +49,19 @@ def test_inverse_hessian_shape():
     coupling_fn, T, N = _toy_coupling()
     data = jnp.zeros((T, N))
     lp_fn = build_log_posterior(data, coupling_fn, P)
-    H_inv = sampler.inverse_hessian(x, lambda xi: lp_fn(xi, bg, s2))
+    H_inv = inverse_hessian(x, lambda xi: lp_fn(xi, bg, s2))
     assert H_inv.shape == (7, 7)
 
 
 def test_sqrt_inv_hess_shape():
-    P = _priors()
-    G = _gibbs()
-    sampler = ManifoldMALAWithinGibbs(P, G)
     M = jnp.eye(7) * 0.5
-    S = sampler.sqrt_inv_hess(M)
+    S = sqrt_inv_hess(M)
     assert S.shape == (7, 7)
 
 
 def test_sqrt_inv_hess_positive():
-    P = _priors()
-    G = _gibbs()
-    sampler = ManifoldMALAWithinGibbs(P, G)
     M = jnp.eye(7) * 2.0
-    S = sampler.sqrt_inv_hess(M)
+    S = sqrt_inv_hess(M)
     assert jnp.allclose(S @ S, M, atol=1e-5)
 
 

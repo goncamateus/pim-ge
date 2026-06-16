@@ -182,7 +182,7 @@ Rules: E, F, I (isort), UP (pyupgrade), B (bugbear), SIM. Line length 100.
 | §2 sensors | `forward/sensors.py` | `Sensors`, `circle_of_sensors`, `temporal_sensors_measurements` |
 | §3 priors | `inverse/priors.py` | `Priors.log_prior`, `log_prior_background`, `log_prior_sigma2` |
 | §3 Gibbs | `inverse/gibbs.py` | `GibbsSamplers.background_conditional_posterior`, `measurement_error_var_conditional_posterior` |
-| §3 M-MALA | `inverse/mcmc.py` | `ManifoldMALAWithinGibbs.manifold_mala_step` |
+| §3 M-MALA | `inverse/mcmc.py` | `inverse_hessian`, `sqrt_inv_hess` |
 | §3 full loop | `inverse/mcmc.py` | `mwg_scan`, `build_log_posterior` |
 | §4 sim study | `reproduction/section4_simulation_study.py` | DPV × WDC × SER sweep |
 | §5 Chilbolton | `reproduction/section5_chilbolton.py` | beam-sensor inversion (needs data) |

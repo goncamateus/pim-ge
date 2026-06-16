@@ -8,13 +8,13 @@ Usage:
 """
 
 import argparse
-import sys
 
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.animation import FFMpegWriter, FuncAnimation, PillowWriter
+from _viz import STABILITY_LABELS, build_figure, init_colorbars, save_or_show
+from matplotlib.animation import FuncAnimation
 from matplotlib.colors import LogNorm
 
 from pim_ge import SourceLocation, WindField
@@ -50,15 +50,6 @@ DIR_THETA = 0.01  # OU mean-reversion rate for wind direction (small -> long, sm
 JET_SPEED = 20.0  # [m/s] optional fixed-speed jet source (0 -> no jet)
 JET_ANGLE = 15.0  # [deg] optional jet exit angle (0 -> horizontal)
 JET_DIAMETER = 0.2  # [m] optional jet diameter
-
-STABILITY_LABELS = {
-    "A": "A — Very unstable",
-    "B": "B — Unstable",
-    "C": "C — Slightly unstable",
-    "D": "D — Neutral",
-    "E": "E — Slightly stable",
-    "F": "F — Stable",
-}
 
 
 def parse_args():
@@ -172,32 +163,12 @@ def main():
     XXg, YYg = np.meshgrid(Xg, Yg, indexing="ij")
 
     # ── Figure ────────────────────────────────────────────────────────────────
-    fig = plt.figure(figsize=(14, 7))
-    fig.patch.set_facecolor("#0e0e0e")
-
-    ax3 = fig.add_axes([0.0, 0.05, 0.60, 0.88], projection="3d")
-    ax_xy = fig.add_axes([0.62, 0.52, 0.34, 0.42])
-    ax_xz = fig.add_axes([0.62, 0.06, 0.34, 0.38])
-
-    title = fig.text(
-        0.30, 0.97, "", ha="center", va="top", fontsize=10, color="white", fontweight="bold"
-    )
+    fig, ax3, ax_xy, ax_xz, title = build_figure()
 
     # Build colorbars from first frame so axes are set up once
     fp0 = conc_all[0].reshape(NX, NY, NZ).max(axis=2)
     xz0 = conc_all[0].reshape(NX, NY, NZ)[:, NY // 2, :]
-    im_xy = ax_xy.pcolormesh(Xg, Yg, fp0.T, cmap="inferno", norm=NORM, shading="auto")
-    im_xz = ax_xz.pcolormesh(Xg, Zg, xz0.T, cmap="inferno", norm=NORM, shading="auto")
-    for ax, im, lbl in [
-        (ax_xy, im_xy, "Ground footprint (max over z)"),
-        (ax_xz, im_xz, "Vertical cross-section y=0"),
-    ]:
-        ax.set_facecolor("#0e0e0e")
-        ax.tick_params(colors="white", labelsize=7)
-        ax.set_title(lbl, fontsize=8, color="white")
-        cb = fig.colorbar(im, ax=ax, fraction=0.04)
-        cb.set_label("ppm", color="white", fontsize=8)
-        plt.setp(cb.ax.yaxis.get_ticklabels(), color="white", fontsize=7)
+    init_colorbars(ax_xy, ax_xz, Xg, Yg, Zg, fp0, xz0, NORM)
 
     def _setup_ax3(t):
         """Reset the 3D axes' styling/limits/viewing angle (called after each `ax3.cla()`).
@@ -311,21 +282,7 @@ def main():
     anim = FuncAnimation(fig, update, frames=T, interval=max(50, 1000 // args.fps), repeat=True)
 
     out_base = f"examples/plume_3d_unstable_wind_class{cls}"
-    saved = False
-    for ext, WriterCls, kw in [
-        (".mp4", FFMpegWriter, {"fps": args.fps}),
-        (".gif", PillowWriter, {"fps": args.fps}),
-    ]:
-        try:
-            anim.save(out_base + ext, writer=WriterCls(**kw), dpi=100)
-            print(f"Saved {out_base + ext}")
-            saved = True
-            break
-        except Exception as e:
-            print(f"Cannot save {ext}: {e}", file=sys.stderr)
-
-    if args.show or not saved:
-        plt.show()
+    save_or_show(anim, out_base, args.fps, args.show)
 
 
 if __name__ == "__main__":
