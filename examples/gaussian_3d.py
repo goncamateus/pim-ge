@@ -10,7 +10,19 @@ import argparse
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-from _viz import STABILITY_LABELS, build_figure, init_colorbars, save_or_show
+from _viz import (
+    STABILITY_LABELS,
+    build_figure,
+    cloud_rgba,
+    draw_3d_scatter,
+    draw_xy_panel,
+    draw_xz_panel,
+    frame_title,
+    init_colorbars,
+    save_or_show,
+    scatter_mask,
+    setup_axes3d,
+)
 from matplotlib.animation import FuncAnimation
 from matplotlib.colors import LogNorm
 
@@ -138,19 +150,6 @@ def main():
     xz0 = conc_all[0].reshape(NX, NY, NZ)[:, NY // 2, :]
     init_colorbars(ax_xy, ax_xz, Xg, Yg, Zg, fp0, xz0, NORM)
 
-    def _setup_ax3():
-        """Reset the 3D axes' styling/limits/viewing angle (called after each `ax3.cla()`)."""
-        ax3.set_facecolor("#0e0e0e")
-        ax3.set_xlabel("x (m)", labelpad=4, color="white", fontsize=8)
-        ax3.set_ylabel("y (m)", labelpad=4, color="white", fontsize=8)
-        ax3.set_zlabel("z (m)", labelpad=4, color="white", fontsize=8)
-        ax3.set_xlim(-300, 300)
-        ax3.set_ylim(-300, 300)
-        ax3.set_zlim(0, Z_MAX)
-        ax3.set_box_aspect((600, 600, Z_MAX))  # true proportions so the cone isn't squashed flat
-        ax3.tick_params(colors="white", labelsize=7)
-        ax3.view_init(elev=24, azim=-55)
-
     def update(t):
         """Draw frame `t`: redraw the 3D scatter cloud, ground footprint, and cross-section.
 
@@ -167,71 +166,23 @@ def main():
         conc_flat = conc_all[t]
         conc_3d = conc_flat.reshape(NX, NY, NZ)
         peak = conc_flat.max()
-        threshold = max(peak * CORE_FRAC, VMIN)
-
-        mask = conc_flat > threshold
-        idx = np.where(mask)[0]
-        idx = idx[np.argsort(conc_flat[idx])]
-        cm = conc_flat[idx]
-
-        rgba = CMAP(NORM(cm))
-        log_t = np.log(max(threshold, 1e-12))
-        log_p = np.log(max(peak, 1e-12))
-        rgba[:, 3] = (
-            np.clip(
-                0.3 + 0.65 * (np.log(np.clip(cm, 1e-12, None)) - log_t) / (log_p - log_t), 0.1, 0.95
-            )
-            if log_p > log_t
-            else np.full(len(cm), 0.5)
+        idx, cm, threshold = scatter_mask(conc_flat, peak, CORE_FRAC, VMIN)
+        rgba = cloud_rgba(
+            cm, CMAP, NORM, threshold, peak, alpha_lo=0.3, alpha_range=0.65, clip_lo=0.1, clip_hi=0.95
         )
-
         footprint = conc_3d.max(axis=2)
 
         # 3D axes — clear and redraw each frame
         ax3.cla()
-        _setup_ax3()
-        ax3.scatter(
-            [source.x],
-            [source.y],
-            [source.z],
-            c="cyan",
-            s=200,
-            marker="*",
-            zorder=10,
-            depthshade=False,
-        )
-        if len(idx):
-            xp, yp, zp = np.array(XX.ravel()), np.array(YY.ravel()), np.array(ZZ.ravel())
-            ax3.scatter(xp[idx], yp[idx], zp[idx], c=rgba, s=12, depthshade=True)
-        ax3.contourf(XXg, YYg, footprint, zdir="z", offset=0.0, levels=20, cmap="Blues", alpha=0.45)
+        setup_axes3d(ax3, xlim=(-300, 300), ylim=(-300, 300), zlim=(0, Z_MAX), elev=24, azim=-55)
+        xp, yp, zp = np.array(XX.ravel()), np.array(YY.ravel()), np.array(ZZ.ravel())
+        draw_3d_scatter(ax3, source, xp, yp, zp, idx, rgba, 12, XXg, YYg, footprint)
 
-        # Ground footprint
-        ax_xy.clear()
-        ax_xy.set_facecolor("#0e0e0e")
-        ax_xy.pcolormesh(Xg, Yg, footprint.T, cmap="inferno", norm=NORM, shading="auto")
-        ax_xy.scatter([source.x], [source.y], c="cyan", s=80, marker="*")
-        ax_xy.set_xlabel("x (m)", fontsize=8, color="white")
-        ax_xy.set_ylabel("y (m)", fontsize=8, color="white")
-        ax_xy.set_title("Ground footprint (max over z)", fontsize=8, color="white")
-        ax_xy.tick_params(colors="white", labelsize=7)
-
-        # Vertical cross-section at y=0
-        ax_xz.clear()
-        ax_xz.set_facecolor("#0e0e0e")
-        ax_xz.pcolormesh(
-            Xg, Zg, conc_3d[:, NY // 2, :].T, cmap="inferno", norm=NORM, shading="auto"
-        )
-        ax_xz.axhline(SOURCE_Z, color="cyan", lw=1, ls="--")
-        ax_xz.set_xlabel("x (m)", fontsize=8, color="white")
-        ax_xz.set_ylabel("z (m)", fontsize=8, color="white")
-        ax_xz.set_title("Vertical cross-section y=0", fontsize=8, color="white")
-        ax_xz.tick_params(colors="white", labelsize=7)
+        draw_xy_panel(ax_xy, Xg, Yg, footprint, NORM, source.x, source.y)
+        draw_xz_panel(ax_xz, Xg, Zg, conc_3d[:, NY // 2, :], NORM, source.z)
 
         deg = np.degrees(float(directions[t])) % 360
-        title.set_text(
-            f"Class {STABILITY_LABELS[cls]}  |  "
-            f"t={t + 1}/{T}  dir={deg:.0f}°  u={WIND_SPEED} m/s  peak={peak:.1f} ppm"
-        )
+        title.set_text(frame_title(STABILITY_LABELS[cls], t, T, deg, WIND_SPEED, peak))
         return []
 
     anim = FuncAnimation(fig, update, frames=T, interval=max(50, 1000 // args.fps), repeat=True)

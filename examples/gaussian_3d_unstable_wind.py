@@ -13,7 +13,19 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-from _viz import STABILITY_LABELS, build_figure, init_colorbars, save_or_show
+from _viz import (
+    STABILITY_LABELS,
+    build_figure,
+    cloud_rgba,
+    draw_3d_scatter,
+    draw_xy_panel,
+    draw_xz_panel,
+    frame_title,
+    init_colorbars,
+    save_or_show,
+    scatter_mask,
+    setup_axes3d,
+)
 from matplotlib.animation import FuncAnimation
 from matplotlib.colors import LogNorm
 
@@ -231,35 +243,12 @@ def main():
     xz0 = conc_all[0].reshape(args.nx, args.ny, args.nz)[:, args.ny // 2, :]
     init_colorbars(ax_xy, ax_xz, Xg, Yg, Zg, fp0, xz0, NORM)
 
-    def _setup_ax3(t):
-        """Reset the 3D axes' styling/limits/viewing angle (called after each `ax3.cla()`).
-
-        Camera orbits smoothly over the animation so both crosswind (-y/+y)
-        and vertical (-z/+z) sides of the plume are visible across frames.
-        """
-        ax3.set_facecolor("#0e0e0e")
-        ax3.set_xlabel("x (m)", labelpad=4, color="white", fontsize=8)
-        ax3.set_ylabel("y (m)", labelpad=4, color="white", fontsize=8)
-        ax3.set_zlabel("z (m)", labelpad=4, color="white", fontsize=8)
-        ax3.set_xlim(args.start_x - 10, args.end_x + 10)
-        ax3.set_ylim(args.start_y - 10, args.end_y + 10)
-        ax3.set_zlim(args.start_z - 10, args.end_z + 10)
-        ax3.set_box_aspect(
-            (
-                args.end_x - args.start_x + 20,
-                args.end_y - args.start_y + 20,
-                args.end_z - args.start_z + 20,
-            )
-        )  # true proportions, not auto-stretched
-        ax3.tick_params(colors="white", labelsize=7)
-        azim = -180 * (t / max(T - 1, 1)) - 30  # full half-turn -> see both +y/-y sides
-        elev = source.z + 10 * np.sin(
-            2 * np.pi * 2 * t / max(T - 1, 1)
-        )  # sweep -> see both +z/-z sides
-        ax3.view_init(elev=elev, azim=azim)
-
     def update(t):
         """Draw frame `t`: redraw the 3D scatter cloud, ground footprint, and cross-section.
+
+        Camera orbits smoothly over the animation (via `setup_axes3d`'s
+        `elev`/`azim`) so both crosswind (-y/+y) and vertical (-z/+z) sides
+        of the plume are visible across frames.
 
         Parameters
         ----------
@@ -274,74 +263,35 @@ def main():
         conc_flat = conc_all[t]
         conc_3d = conc_flat.reshape(args.nx, args.ny, args.nz)
         peak = conc_flat.max()
-        threshold = max(peak * args.core_frac, VMIN)
-
-        mask = conc_flat > threshold
-        idx = np.where(mask)[0]
-        idx = idx[np.argsort(conc_flat[idx])]
-        cm = conc_flat[idx]
-
-        rgba = CMAP(NORM(cm))
-        log_t = np.log(max(threshold, 1e-12))
-        log_p = np.log(max(peak, 1e-12))
-        rgba[:, 3] = (
-            np.clip(
-                0.45 + 0.5 * (np.log(np.clip(cm, 1e-12, None)) - log_t) / (log_p - log_t),
-                0.25,
-                0.95,
-            )
-            if log_p > log_t
-            else np.full(len(cm), 0.5)
+        idx, cm, threshold = scatter_mask(conc_flat, peak, args.core_frac, VMIN)
+        rgba = cloud_rgba(
+            cm, CMAP, NORM, threshold, peak, alpha_lo=0.45, alpha_range=0.5, clip_lo=0.25, clip_hi=0.95
         )
-
         footprint = conc_3d.max(axis=2)
 
         # 3D axes — clear and redraw each frame
         ax3.cla()
-        _setup_ax3(t)
-        ax3.scatter(
-            [source.x],
-            [source.y],
-            [source.z],
-            c="cyan",
-            s=200,
-            marker="*",
-            zorder=10,
-            depthshade=False,
+        azim = -180 * (t / max(T - 1, 1)) - 30  # full half-turn -> see both +y/-y sides
+        elev = source.z + 10 * np.sin(
+            2 * np.pi * 2 * t / max(T - 1, 1)
+        )  # sweep -> see both +z/-z sides
+        setup_axes3d(
+            ax3,
+            xlim=(args.start_x - 10, args.end_x + 10),
+            ylim=(args.start_y - 10, args.end_y + 10),
+            zlim=(args.start_z - 10, args.end_z + 10),
+            elev=elev,
+            azim=azim,
         )
-        if len(idx):
-            xp, yp, zp = np.array(XX.ravel()), np.array(YY.ravel()), np.array(ZZ.ravel())
-            ax3.scatter(xp[idx], yp[idx], zp[idx], c=rgba, s=20, depthshade=True)
-        ax3.contourf(XXg, YYg, footprint, zdir="z", offset=0.0, levels=20, cmap="Blues", alpha=0.45)
+        xp, yp, zp = np.array(XX.ravel()), np.array(YY.ravel()), np.array(ZZ.ravel())
+        draw_3d_scatter(ax3, source, xp, yp, zp, idx, rgba, 20, XXg, YYg, footprint)
 
-        # Ground footprint
-        ax_xy.clear()
-        ax_xy.set_facecolor("#0e0e0e")
-        ax_xy.pcolormesh(Xg, Yg, footprint.T, cmap="inferno", norm=NORM, shading="auto")
-        ax_xy.scatter([source.x], [source.y], c="cyan", s=80, marker="*")
-        ax_xy.set_xlabel("x (m)", fontsize=8, color="white")
-        ax_xy.set_ylabel("y (m)", fontsize=8, color="white")
-        ax_xy.set_title("Ground footprint (max over z)", fontsize=8, color="white")
-        ax_xy.tick_params(colors="white", labelsize=7)
-
-        # Vertical cross-section at y=0
-        ax_xz.clear()
-        ax_xz.set_facecolor("#0e0e0e")
-        ax_xz.pcolormesh(
-            Xg, Zg, conc_3d[:, args.ny // 2, :].T, cmap="inferno", norm=NORM, shading="auto"
-        )
-        ax_xz.axhline(source.z, color="cyan", lw=1, ls="--")
-        ax_xz.set_xlabel("x (m)", fontsize=8, color="white")
-        ax_xz.set_ylabel("z (m)", fontsize=8, color="white")
-        ax_xz.set_title("Vertical cross-section y=0", fontsize=8, color="white")
-        ax_xz.tick_params(colors="white", labelsize=7)
+        draw_xy_panel(ax_xy, Xg, Yg, footprint, NORM, source.x, source.y)
+        draw_xz_panel(ax_xz, Xg, Zg, conc_3d[:, args.ny // 2, :], NORM, source.z)
 
         deg = np.degrees(float(directions_np[t])) % 360
         spd = float(speeds_np[t])
-        title.set_text(
-            f"Class {STABILITY_LABELS[cls]}  |  "
-            f"t={t + 1}/{T}  dir={deg:.0f}°  u={spd:.1f} m/s  peak={peak:.1f} ppm"
-        )
+        title.set_text(frame_title(STABILITY_LABELS[cls], t, T, deg, spd, peak))
         return []
 
     anim = FuncAnimation(fig, update, frames=T, interval=max(50, 1000 // args.fps), repeat=True)

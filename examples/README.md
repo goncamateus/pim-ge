@@ -6,10 +6,14 @@ same 3-panel layout — 3D scatter cloud, ground footprint (max over z), and a
 vertical cross-section at y=0 — over an evolving wind field, and save the
 result as MP4 (falling back to GIF, then to an interactive window).
 
-That shared figure/colorbar/save-or-show scaffolding lives in `_viz.py`
-(`build_figure`, `init_colorbars`, `save_or_show`, `STABILITY_LABELS`) so
-each script below only contains what's actually specific to it: grid
-domain, wind model, camera motion, and the per-frame `update()`.
+That shared scaffolding lives in `_viz.py` — figure/colorbar setup
+(`build_figure`, `init_colorbars`), the save-or-show epilogue
+(`save_or_show`), and the per-frame drawing logic (`scatter_mask`,
+`cloud_rgba`, `setup_axes3d`, `draw_3d_scatter`, `draw_xy_panel`,
+`draw_xz_panel`, `frame_title`, `STABILITY_LABELS`). Each script below
+supplies only what's genuinely its own: grid domain, wind model, camera
+motion (static vs. orbiting), and the alpha-ramp/dot-size constants for
+its scatter cloud — threaded into the shared helpers as arguments.
 
 ## `gaussian_3d.py` — deterministic wind sweep
 
@@ -40,8 +44,7 @@ uv run --extra examples examples/gaussian_3d.py --class D --frames 100 --fps 10
 | `parse_args()` | Reads `--class`, `--frames`, `--fps`, `--show` from the CLI. |
 | `build_grid()` | Builds the 600×600 m evaluation grid (centred on the source, valid for any wind direction) the plume is sampled on. |
 | `main()` | Simulates the wind sweep, evaluates the plume for all frames at once, builds the figure, and saves/shows the animation. |
-| `main._setup_ax3()` | Resets the 3D axes' styling/limits/camera angle after each per-frame `cla()`. |
-| `main.update(t)` | Redraws frame `t`: 3D scatter cloud (thresholded by `CORE_FRAC`), ground-footprint heatmap, vertical cross-section, and the title bar (direction/speed/peak). |
+| `main.update(t)` | Redraws frame `t`: calls `_viz.scatter_mask`/`cloud_rgba` (thresholded by `CORE_FRAC`, fixed alpha ramp), `_viz.setup_axes3d` (static camera `elev=24, azim=-55`), `_viz.draw_3d_scatter`/`draw_xy_panel`/`draw_xz_panel`, and `_viz.frame_title`. |
 
 ## `gaussian_3d_unstable_wind.py` — stochastic wind (Ornstein-Uhlenbeck)
 
@@ -82,5 +85,4 @@ class-name lookup as in `gaussian_3d.py`.
 | `parse_args()` | Reads `--class`, `--frames`, `--fps`, `--seed`, `--show`, and the full set of CLI flags above. |
 | `build_grid(args)` | Builds the downwind-only evaluation grid from `args.start_*`/`args.end_*`/`args.n*`. |
 | `main()` | Simulates the OU wind realization, evaluates the plume for all frames at once, builds the figure, and saves/shows the animation. |
-| `main._setup_ax3(t)` | Resets the 3D axes' styling/limits/camera angle after each per-frame `cla()`. |
-| `main.update(t)` | Redraws frame `t`: 3D scatter cloud, ground-footprint heatmap, vertical cross-section, and the title bar (current sampled direction/speed/peak). |
+| `main.update(t)` | Redraws frame `t`: same `_viz` helpers as `gaussian_3d.py`, but with an orbiting camera (`elev`/`azim` computed from `t`, fed into `_viz.setup_axes3d`) and a different alpha ramp/dot size for `cloud_rgba`/`draw_3d_scatter`. |
