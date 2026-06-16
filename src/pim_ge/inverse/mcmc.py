@@ -70,9 +70,7 @@ def sqrt_inv_hess(inv_hess: Array) -> Array:
     return vecs @ jnp.diag(jnp.sqrt(jnp.abs(vals))) @ vecs.T
 
 
-def _log_proposal(
-    x_prop: Array, x_curr: Array, grad: Array, sqrt_G: Array, eps: float
-) -> Array:
+def _log_proposal(x_prop: Array, x_curr: Array, grad: Array, sqrt_G: Array, eps: float) -> Array:
     r"""Log density of the M-MALA proposal `q(x_prop | x_curr)`.
 
     Parameters
@@ -239,9 +237,7 @@ def mwg_scan(
         x_prop = mu_fwd + step_size * sqrt_G @ noise
 
         lp_prop, grad_prop = jax.value_and_grad(log_posterior_fn)(x_prop, background, sigma2)
-        inv_H_prop = inverse_hessian(
-            x_prop, lambda xi: log_posterior_fn(xi, background, sigma2)
-        )
+        inv_H_prop = inverse_hessian(x_prop, lambda xi: log_posterior_fn(xi, background, sigma2))
         sqrt_G_prop = sqrt_inv_hess(inv_H_prop)
 
         log_q_fwd = _log_proposal(x_prop, x, grad_curr, sqrt_G, step_size)

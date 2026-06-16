@@ -61,7 +61,9 @@ def parse_args():
         default=0.9,
         help="source strength s [kg/s], multiplied into the unit coupling matrix A",
     )
-    p.add_argument("--source-z", type=float, default=25.0, help="release height [m] of the point source")
+    p.add_argument(
+        "--source-z", type=float, default=25.0, help="release height [m] of the point source"
+    )
     p.add_argument(
         "--mixing-height",
         type=float,
@@ -81,7 +83,9 @@ def parse_args():
     p.add_argument("--end-x", type=float, default=50.0, help="grid upper x bound [m]")
     p.add_argument("--nx", type=int, default=40, help="grid points along x")
 
-    p.add_argument("--start-y", type=float, default=-25.0, help="grid lower y bound [m] (crosswind)")
+    p.add_argument(
+        "--start-y", type=float, default=-25.0, help="grid lower y bound [m] (crosswind)"
+    )
     p.add_argument("--end-y", type=float, default=25.0, help="grid upper y bound [m]")
     p.add_argument("--ny", type=int, default=40, help="grid points along y")
 
@@ -112,7 +116,10 @@ def parse_args():
         help="OU mean-reversion rate for wind speed (large -> fast relaxation/noisy)",
     )
     p.add_argument(
-        "--dir-mean", type=float, default=0.0, help="OU mean-reversion level for wind direction [rad]"
+        "--dir-mean",
+        type=float,
+        default=0.0,
+        help="OU mean-reversion level for wind direction [rad]",
     )
     p.add_argument(
         "--dir-std",
@@ -130,7 +137,9 @@ def parse_args():
     p.add_argument(
         "--jet-speed", type=float, default=20.0, help="jet exit speed [m/s]; 0 = passive (no jet)"
     )
-    p.add_argument("--jet-angle", type=float, default=15.0, help="jet exit direction [deg, world frame]")
+    p.add_argument(
+        "--jet-angle", type=float, default=15.0, help="jet exit direction [deg, world frame]"
+    )
     p.add_argument("--jet-diameter", type=float, default=0.2, help="jet diameter [m] for L_relax")
     return p.parse_args()
 
@@ -265,7 +274,15 @@ def main():
         peak = conc_flat.max()
         idx, cm, threshold = scatter_mask(conc_flat, peak, args.core_frac, VMIN)
         rgba = cloud_rgba(
-            cm, CMAP, NORM, threshold, peak, alpha_lo=0.45, alpha_range=0.5, clip_lo=0.25, clip_hi=0.95
+            cm,
+            CMAP,
+            NORM,
+            threshold,
+            peak,
+            alpha_lo=0.45,
+            alpha_range=0.5,
+            clip_lo=0.25,
+            clip_hi=0.95,
         )
         footprint = conc_3d.max(axis=2)
 

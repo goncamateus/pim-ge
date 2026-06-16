@@ -56,9 +56,13 @@ def parse_args():
     p.add_argument("--frames", type=int, default=100)
     p.add_argument("--fps", type=int, default=10)
     p.add_argument("--show", action="store_true")
-    p.add_argument("--jet-speed", type=float, default=0.0, help="source exit speed [m/s]; 0 = passive")
+    p.add_argument(
+        "--jet-speed", type=float, default=0.0, help="source exit speed [m/s]; 0 = passive"
+    )
     p.add_argument("--jet-angle", type=float, default=0.0, help="exit direction [deg, world frame]")
-    p.add_argument("--jet-diameter", type=float, default=4.0, help="source diameter [m] for L_relax")
+    p.add_argument(
+        "--jet-diameter", type=float, default=4.0, help="source diameter [m] for L_relax"
+    )
     return p.parse_args()
 
 
@@ -168,7 +172,15 @@ def main():
         peak = conc_flat.max()
         idx, cm, threshold = scatter_mask(conc_flat, peak, CORE_FRAC, VMIN)
         rgba = cloud_rgba(
-            cm, CMAP, NORM, threshold, peak, alpha_lo=0.3, alpha_range=0.65, clip_lo=0.1, clip_hi=0.95
+            cm,
+            CMAP,
+            NORM,
+            threshold,
+            peak,
+            alpha_lo=0.3,
+            alpha_range=0.65,
+            clip_lo=0.1,
+            clip_hi=0.95,
         )
         footprint = conc_3d.max(axis=2)
 

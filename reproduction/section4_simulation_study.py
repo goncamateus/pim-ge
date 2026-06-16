@@ -705,7 +705,9 @@ def plot_figure3(iters: int, burn_in: int):
     gy = np.array(grid_sensors[:, 1])
     gz = np.array(grid_sensors[:, 2])
     ax2.scatter(gx, gy, gz, c="steelblue", s=40, label="Sensors")
-    ax2.scatter([TRUE_SRC_X], [TRUE_SRC_Y], [TRUE_SRC_Z], c="red", marker="*", s=150, label="Source")
+    ax2.scatter(
+        [TRUE_SRC_X], [TRUE_SRC_Y], [TRUE_SRC_Z], c="red", marker="*", s=150, label="Source"
+    )
     ax2.set_xlabel("x (m)", fontsize=7)
     ax2.set_ylabel("y (m)", fontsize=7)
     ax2.set_zlabel("z (m)", fontsize=7)
@@ -885,7 +887,9 @@ def plot_figure6(misspec_results: dict):
     source_true_vals = [BL["ser"], TRUE_SRC_X, TRUE_SRC_Y]
     disp_params = list(MISSPEC_RANGE.keys())
 
-    fig, axes = plt.subplots(len(source_params), len(disp_params), figsize=(14, 9), squeeze=False, sharey="row")
+    fig, axes = plt.subplots(
+        len(source_params), len(disp_params), figsize=(14, 9), squeeze=False, sharey="row"
+    )
     fig.suptitle("Figure 6 — Dispersion Misspecification Impact", fontsize=11, fontweight="bold")
 
     for col, dp in enumerate(disp_params):

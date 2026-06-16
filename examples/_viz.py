@@ -208,7 +208,9 @@ def setup_axes3d(ax3, xlim: tuple, ylim: tuple, zlim: tuple, elev: float, azim: 
     ax3.view_init(elev=elev, azim=azim)
 
 
-def draw_3d_scatter(ax3, source, xp, yp, zp, idx, rgba, scatter_size: int, XXg, YYg, footprint) -> None:
+def draw_3d_scatter(
+    ax3, source, xp, yp, zp, idx, rgba, scatter_size: int, XXg, YYg, footprint
+) -> None:
     """Draw the source marker, thresholded scatter cloud, and ground-shadow contour on `ax3`.
 
     Parameters
@@ -239,7 +241,9 @@ def draw_3d_scatter(ax3, source, xp, yp, zp, idx, rgba, scatter_size: int, XXg, 
     ax3.contourf(XXg, YYg, footprint, zdir="z", offset=0.0, levels=20, cmap="Blues", alpha=0.45)
 
 
-def draw_xy_panel(ax_xy, Xg, Yg, footprint, norm: LogNorm, source_x: float, source_y: float) -> None:
+def draw_xy_panel(
+    ax_xy, Xg, Yg, footprint, norm: LogNorm, source_x: float, source_y: float
+) -> None:
     """Redraw the ground-footprint heatmap panel for one frame.
 
     Parameters
