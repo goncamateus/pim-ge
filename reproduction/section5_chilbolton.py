@@ -55,6 +55,22 @@ _SRCS_FILE = (
 
 
 def _meas_file(src: int) -> Path:
+    """Path to the methane measurement pickle for Chilbolton source `src`.
+
+    Parameters
+    ----------
+    src : {1, 2}
+        Source number.
+
+    Returns
+    -------
+    Path
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), §5 — Chilbolton FTIR measurement
+    file location; not an equation, just data plumbing for the case study.
+    """
     d = {
         1: "Source_1/Chilbolton_CH4_measurements_source_1.pkl",
         2: "Source_2/Chilbolton_CH4_measurements_source_2.pkl",
@@ -63,6 +79,22 @@ def _meas_file(src: int) -> Path:
 
 
 def _wind_file(src: int) -> Path:
+    """Path to the wind-field pickle for Chilbolton source `src`.
+
+    Parameters
+    ----------
+    src : {1, 2}
+        Source number.
+
+    Returns
+    -------
+    Path
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), §5 — Chilbolton wind-field file
+    location; data plumbing, not an equation.
+    """
     d = {
         1: "Source_1/Chilbolton_windfield_source_1.pkl",
         2: "Source_2/Chilbolton_windfield_source_2.pkl",
@@ -107,6 +139,14 @@ if HAS_MPL:
 
 
 def check_data():
+    """Verify required Chilbolton data files exist, exiting with instructions if not.
+
+    Notes
+    -----
+    Paper Mapping: extension beyond Newman et al. (2024); data-availability
+    guard for §5's real-data dependency (the Chilbolton dataset is not
+    bundled with this repo).
+    """
     needed = [_LOCS_FILE, _SRCS_FILE, _meas_file(1), _wind_file(1), _meas_file(2), _wind_file(2)]
     missing = [f for f in needed if not f.exists()]
     if missing:
@@ -119,11 +159,48 @@ def check_data():
 
 
 def _pkl(path: Path):
+    """Unpickle and return the object stored at `path`.
+
+    Parameters
+    ----------
+    path : Path
+
+    Returns
+    -------
+    object
+
+    Notes
+    -----
+    Paper Mapping: extension beyond Newman et al. (2024); data-loading
+    utility, not an equation.
+    """
     with open(path, "rb") as fh:
         return pickle.load(fh)
 
 
 def load_data(source_num: int) -> dict:
+    """Load Chilbolton measurements, wind field, and beam/source geometry for one source.
+
+    Parameters
+    ----------
+    source_num : {1, 2}
+        Which Chilbolton release to load.
+
+    Returns
+    -------
+    dict
+        `measurements` (T, N_BEAMS), `beam_starts`/`beam_ends` (N_BEAMS, 3),
+        `wind_speed`/`wind_direction` (T,), `tan_gamma_H`/`tan_gamma_V`
+        (scalars), `release_x`/`release_y`/`release_z`/`release_rate`
+        (known ground truth for comparison).
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), §5 — loads the real open-path FTIR
+    beam-sensor dataset (one fixed sensor, `N_BEAMS=7` retro-reflectors) used
+    for the Chilbolton field-release case study, matching the layout
+    consumed by `forward.plume.beam_path_coupling_matrix`.
+    """
     meas_df = _pkl(_meas_file(source_num))
     wind_df = _pkl(_wind_file(source_num))
     locs = _pkl(_LOCS_FILE)
@@ -165,6 +242,37 @@ def load_data(source_num: int) -> dict:
 
 
 def make_coupling_fn(data: dict, label: str, scheme: str, stability_class: str, estimated: bool):
+    """Build a `coupling_fn(x) -> A` closure for one Chilbolton dispersion model.
+
+    Parameters
+    ----------
+    data : dict
+        Output of `load_data` (beam geometry, wind, `tan_gamma_H/V`).
+    label : str
+        Model label (unused inside the closure; kept for caller bookkeeping).
+    scheme : {"Briggs", "SMITH", "Draxler"}
+        Dispersion parametrization.
+    stability_class : str
+        Pasquill-Gifford class, used by fixed-table (`estimated=False`) models.
+    estimated : bool
+        If True, infer dispersion coefficients from `x[:4]` instead of using
+        a fixed-table scheme.
+
+    Returns
+    -------
+    Callable
+        `fn(x) -> A`, the beam-path coupling matrix
+        (`forward.plume.beam_path_coupling_matrix`) for source location
+        `x[5:7]` at fixed height `SOURCE_Z`.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), §5, Table comparing Briggs/Smith
+    (fixed) vs. Smith/Draxler (estimated) dispersion models — builds the
+    coupling function for one entry of `MODELS`. The `"Draxler"` branch
+    additionally passes the data-derived `tan_gamma_H`/`tan_gamma_V`
+    (Eq. 3's wind-direction roughness terms) measured at the site.
+    """
     beam_starts = data["beam_starts"]
     beam_ends = data["beam_ends"]
     wind = WindField(speed=data["wind_speed"], direction=data["wind_direction"])
@@ -225,6 +333,36 @@ def make_coupling_fn(data: dict, label: str, scheme: str, stability_class: str, 
 def run_inversion(
     data: dict, label: str, scheme: str, stability_class: str, estimated: bool, key
 ) -> dict:
+    """Run `mwg_scan` for one Chilbolton (data, dispersion-model) pair and summarize the chain.
+
+    Parameters
+    ----------
+    data : dict
+        Output of `load_data`.
+    label : str
+        Model label, carried through into the result dict for plotting.
+    scheme : {"Briggs", "SMITH", "Draxler"}
+        Dispersion parametrization.
+    stability_class : str
+        Pasquill-Gifford class (fixed-table models).
+    estimated : bool
+        If True, infer dispersion coefficients jointly with the source.
+    key : Array
+        JAX PRNG key.
+
+    Returns
+    -------
+    dict
+        `label`, post-burn-in posterior samples (`s_samples`,
+        `src_x_samples`, `src_y_samples`), their medians, and `accept_rate`.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), §5, Algorithm Supp. A.3 — runs the
+    M-MALA-within-Gibbs inversion (`inverse.mcmc.mwg_scan`) against real
+    Chilbolton beam-sensor data for one of the `MODELS` entries, with priors
+    centred near the known release geometry for this site.
+    """
     n_beams = N_BEAMS
     priors = Priors(
         log_a_H_std=2.0,
@@ -274,6 +412,23 @@ def run_inversion(
 
 
 def plot_figure7(data1: dict, data2: dict):
+    """Render Figure 7: sensor, beam, and source spatial layout at Chilbolton.
+
+    Parameters
+    ----------
+    data1 : dict
+        Output of `load_data(1)` (used only to satisfy the call signature;
+        geometry is re-loaded from the location/source pickles directly).
+    data2 : dict
+        Output of `load_data(2)`.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), Figure 7, §5 — plots the fixed
+    sensor, the `N_BEAMS=7` retro-reflector beam paths, and the four known
+    Chilbolton source locations, plus the plotting-area rectangles reused by
+    Figure 9.
+    """
     if not HAS_MPL:
         return
     locs = _pkl(_LOCS_FILE)
@@ -348,6 +503,26 @@ def plot_figure7(data1: dict, data2: dict):
 
 
 def plot_figure8(results1: list, results2: list, data1: dict, data2: dict):
+    """Render Figure 8: posterior emission rate / source-location boxplots, all models.
+
+    Parameters
+    ----------
+    results1 : list of dict
+        `run_inversion` outputs for Source 1, one per `MODELS` entry.
+    results2 : list of dict
+        `run_inversion` outputs for Source 2.
+    data1 : dict
+        `load_data(1)` (supplies true `release_rate`/`release_x`/`release_y`).
+    data2 : dict
+        `load_data(2)`.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), Figure 8, §5 — compares posterior
+    emission-rate and source-location estimates across all dispersion models
+    in `MODELS` for both Chilbolton sources, with the known true release
+    value marked.
+    """
     if not HAS_MPL:
         return
     fig, axes = plt.subplots(3, 2, figsize=(16, 10))
@@ -403,6 +578,26 @@ def plot_figure8(results1: list, results2: list, data1: dict, data2: dict):
 
 
 def plot_figure9(results1: list, results2: list, data1: dict, data2: dict):
+    """Render Figure 9: 2D KDE credible-region contours of the source-location posterior.
+
+    Parameters
+    ----------
+    results1 : list of dict
+        `run_inversion` outputs for Source 1.
+    results2 : list of dict
+        `run_inversion` outputs for Source 2.
+    data1 : dict
+        `load_data(1)`.
+    data2 : dict
+        `load_data(2)`.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), Figure 9, §5 — per-model 50%/90%
+    credible-region contours of the posterior source location
+    `(src_x, src_y)`, estimated via Gaussian KDE over the post-burn-in MCMC
+    samples, overlaid on the beam geometry and true source location.
+    """
     if not HAS_MPL:
         return
     locs = _pkl(_LOCS_FILE)
@@ -475,6 +670,15 @@ def plot_figure9(results1: list, results2: list, data1: dict, data2: dict):
 
 
 def main():
+    """Run the §5 Chilbolton case study end-to-end and save Figures 7, 8, 9.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), §5 — orchestrates: load both
+    Chilbolton sources (`load_data`) -> Figure 7 (layout) -> run all 11
+    dispersion models in `MODELS` for both sources (`run_inversion`) ->
+    Figures 8/9 (posterior comparison and location contours).
+    """
     check_data()
     data1 = load_data(1)
     data2 = load_data(2)

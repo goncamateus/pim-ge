@@ -1,4 +1,4 @@
-"""Closed-form Gibbs updates for conjugate parameters — §3 of Newman et al. (2024)."""
+r"""Closed-form Gibbs updates for conjugate parameters — §3.1 of Newman et al. (2024)."""
 
 from dataclasses import dataclass
 
@@ -11,6 +11,21 @@ from pim_ge.inverse.priors import Priors
 
 @dataclass
 class GibbsSamplers:
+    """Exact conjugate Gibbs updates for `background` (`beta`) and `sigma^2`.
+
+    Parameters
+    ----------
+    priors : Priors
+        Prior hyperparameters used to form the conjugate posteriors.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), §3.1 — `beta` and `sigma^2` are
+    blocked out of the M-MALA proposal (`inverse/mcmc.py`) and updated exactly
+    each iteration via their conjugate full-conditional posteriors (Eqs. 8-9),
+    following the within-Gibbs scheme of Algorithm A.3.
+    """
+
     priors: Priors
 
     def background_conditional_posterior(
@@ -21,11 +36,43 @@ class GibbsSamplers:
         emission_rate: float,
         sigma2: float,
     ) -> Array:
-        """MVN conjugate update for per-sensor background beta ~ Normal(mu_post, Sigma_post).
+        r"""Sample `beta` from its conjugate Normal full-conditional posterior.
 
-        Prior: beta ~ Normal(0, sigma_bg^2 * I).
-        Likelihood: data[t,n] ~ Normal(A[t,n]*s + beta[n], sigma^2).
-        Posterior per sensor is independent (diagonal prior + diagonal likelihood per sensor).
+        Parameters
+        ----------
+        key : Array
+            JAX PRNG key.
+        data : Array, shape (T, N)
+            Observed measurements `d`.
+        coupling : Array, shape (T, N)
+            Coupling matrix `A`.
+        emission_rate : float
+            Current emission rate `s` [kg/s].
+        sigma2 : float
+            Current measurement-error variance `sigma^2`.
+
+        Returns
+        -------
+        Array, shape (N,)
+            One draw of the per-sensor background `beta` from its posterior.
+
+        Notes
+        -----
+        Paper Mapping: Newman et al. (2024), Eq. (9), §3.1 — conjugate Normal
+        update for `beta` given prior
+        :math:`\boldsymbol{\beta}\sim\mathcal{N}(\mathbf{0}, \sigma_{bg}^2 I)`
+        and likelihood :math:`d_{t,n}\sim\mathcal{N}(A_{t,n}s+\beta_n,\sigma^2)`.
+
+        .. math::
+            \boldsymbol{\beta} \mid \boldsymbol{\lambda}\setminus\{\boldsymbol{\beta}\}
+            \sim \mathcal{N}\!\left(
+            \left(\tfrac{1}{\sigma^2}I + \Sigma_\beta^{-1}\right)^{-1}
+            \left(\tfrac{1}{\sigma^2}(\mathbf{d}-\mathbf{A}\mathbf{s}) + \Sigma_\beta^{-1}\mu_\beta\right),
+            \left(\tfrac{1}{\sigma^2}I + \Sigma_\beta^{-1}\right)^{-1}\right)
+
+        With diagonal :math:`\Sigma_\beta=\sigma_{bg}^2 I` and
+        :math:`\mu_\beta=0`, the posterior factorizes per sensor, which is
+        exactly the scalar precision/mean update implemented below.
         """
         T = data.shape[0]
         residuals = data - coupling * emission_rate  # (T, N)
@@ -42,10 +89,32 @@ class GibbsSamplers:
         key: Array,
         residuals: Array,  # (T, N) or flat (T*N,)
     ) -> Array:
-        """Inverse-Gamma conjugate update for sigma^2.
+        r"""Sample `sigma^2` from its conjugate Inverse-Gamma full-conditional posterior.
 
-        Prior: sigma^2 ~ IG(alpha, beta).
-        Posterior: sigma^2 ~ IG(alpha + n/2, beta + sum(residuals^2)/2).
+        Parameters
+        ----------
+        key : Array
+            JAX PRNG key.
+        residuals : Array, shape (T, N) or (T*N,)
+            Residuals `d - A*s - beta` used to form the sum of squares.
+
+        Returns
+        -------
+        Array
+            One draw of `sigma^2` from its posterior.
+
+        Notes
+        -----
+        Paper Mapping: Newman et al. (2024), Eq. (8), §3.1 — conjugate
+        Inverse-Gamma update for `sigma^2` given prior `sigma^2 ~ IG(a, b)`.
+
+        .. math::
+            \sigma^2 \mid \boldsymbol{\lambda}\setminus\{\sigma^2\}
+            \sim \text{Inv-Gamma}\!\left(\frac{n_{obs}}{2}+a,\;
+            b + \frac{1}{2}\sum(\mathbf{d}-\boldsymbol{\beta}-\mathbf{A}\mathbf{s})^2\right)
+
+        Sampled here via `IG(a, b) = 1 / Gamma(a, rate=1/b)`, i.e.
+        `b / Gamma(a, 1)`.
         """
         n = residuals.size
         post_alpha = self.priors.sigma2_alpha + n / 2.0
@@ -63,8 +132,41 @@ class GibbsSamplers:
         background: Array,
         sigma2: float,
     ) -> Array:
-        """Binomial spike-and-slab update for Z_i (grid-based only).
+        """Binomial spike-and-slab update for the grid-cell indicator `Z_i`.
 
-        Not used in the grid-free inversion; included for completeness.
+        Parameters
+        ----------
+        key : Array
+            JAX PRNG key.
+        log_s : float
+            Candidate log emission rate for the grid cell.
+        data : Array
+            Observed measurements.
+        coupling : Array
+            Coupling matrix for the candidate grid cell.
+        background : Array
+            Current per-sensor background.
+        sigma2 : float
+            Current measurement-error variance.
+
+        Returns
+        -------
+        Array
+            Not implemented — always raises.
+
+        Raises
+        ------
+        NotImplementedError
+            Always; spike-and-slab grid-cell selection is not used by this
+            package's grid-free inversion.
+
+        Notes
+        -----
+        Paper Mapping: extension stub beyond the grid-free model implemented
+        here. The paper's grid-based alternative formulation (referenced
+        alongside the grid-free approach used elsewhere in this package)
+        relies on a spike-and-slab indicator `Z_i` per grid cell; this method
+        is a placeholder, not used in the grid-free inversion pipeline
+        (`inverse/mcmc.py`).
         """
         raise NotImplementedError("Spike-and-slab only applies to grid-based source search.")

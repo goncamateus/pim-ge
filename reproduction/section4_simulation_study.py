@@ -107,10 +107,31 @@ if HAS_MPL:
 
 
 def make_sensors(layout: str, dts: float) -> jnp.ndarray:
-    # Centre the array on the source so it observes the plume for all wind directions
-    # (paper level M: source at (50, 50), grid spans ~DTS around it). cx/cy keep the
-    # source inside coverage; without this the source falls outside the array and the
-    # location posterior collapses to the prior mean.
+    """Build a sensor layout centred on the true source.
+
+    Parameters
+    ----------
+    layout : {"circle", "grid", "sline", "line"}
+        Sensor-layout (SL) factor level: 8-sensor circle, 6x6 grid, 6x1
+        sparse line, or 36x1 dense line.
+    dts : float
+        Distance-to-source (DTS) factor level [m]; controls the spatial
+        extent the sensors span around the source.
+
+    Returns
+    -------
+    jnp.ndarray, shape (N_sensors, 3)
+        Sensor `(x, y, z)` coordinates [m].
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), §4 — realizes the Sensor Layout (SL)
+    and Distance-To-Source (DTS) factor levels of the simulation-study design
+    (Figs. 4-5). The array is centred on the source so it observes the plume
+    for all wind directions (paper level M: source at (50, 50), grid spans
+    ~DTS around it); without this the source falls outside the array and the
+    location posterior collapses to the prior mean.
+    """
     cx, cy = TRUE_SRC_X, TRUE_SRC_Y
     if layout == "circle":
         return circle_of_sensors(cx, cy, dts, 8, SENSOR_HEIGHT)
@@ -128,6 +149,30 @@ def make_sensors(layout: str, dts: float) -> jnp.ndarray:
 
 
 def make_wind(key, T: int, wdc_degrees: float) -> WindField:
+    """Simulate a wind realization with a given wind-direction-coverage (WDC) factor.
+
+    Parameters
+    ----------
+    key : Array
+        JAX PRNG key.
+    T : int
+        Number of timesteps (observations-per-sensor, OPS factor).
+    wdc_degrees : float
+        Wind-direction-coverage (WDC) factor level [degrees]; converted to
+        the OU direction's standard deviation.
+
+    Returns
+    -------
+    WindField
+        Simulated wind speed/direction series.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), §4 — realizes the WDC factor level
+    of the simulation-study design via `wind_direction_sinusoidal`
+    (an extension beyond the paper's Eq. 4 OU model, see
+    `forward/wind.py::wind_direction_sinusoidal`).
+    """
     k_s, k_d = jax.random.split(key)
     std_rad = (wdc_degrees * math.pi) / 360.0
     return WindField(
@@ -139,10 +184,54 @@ def make_wind(key, T: int, wdc_degrees: float) -> WindField:
 
 
 def make_log_params(aH, aV, bH, bV) -> jnp.ndarray:
+    """Pack dispersion coefficients into the `log_params` vector expected by `temporal_gridfree_coupling_matrix`.
+
+    Parameters
+    ----------
+    aH, aV, bH, bV : float
+        Horizontal/vertical dispersion power-law coefficients and exponents.
+
+    Returns
+    -------
+    jnp.ndarray, shape (4,)
+        `[log_a_H, log_a_V, log_b_H, log_b_V]`.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), Eq. (3), §2.2 — log-space packing
+    of the `a_H, b_H, a_V, b_V` coefficients of the dispersion power law.
+    """
     return jnp.array([math.log(aH), math.log(aV), math.log(bH), math.log(bV)])
 
 
 def generate_data(key, sensors, wind, dpv_case: int, ser: float) -> jnp.ndarray:
+    """Simulate synthetic sensor measurements for one Dispersion-Parameter-Value (DPV) case.
+
+    Parameters
+    ----------
+    key : Array
+        JAX PRNG key.
+    sensors : Array, shape (N_sensors, 3)
+        Sensor positions.
+    wind : WindField
+        Wind realization.
+    dpv_case : int
+        Dispersion-Parameter-Value (DPV) factor level, indexing `DPV_PARAMS`.
+    ser : float
+        Source emission rate (SER) factor level [kg/s].
+
+    Returns
+    -------
+    jnp.ndarray, shape (T, N_sensors)
+        Simulated measurements `d`.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), Eq. (5), §2.4/§4 — generates
+    synthetic data for the DPV/SER factor levels of the simulation study via
+    the measurement model `d = A*s + beta + noise`
+    (`forward/sensors.py::temporal_sensors_measurements`).
+    """
     aH, aV, bH, bV = DPV_PARAMS[dpv_case]
     src = SourceLocation(x=TRUE_SRC_X, y=TRUE_SRC_Y, z=TRUE_SRC_Z)
     A = temporal_gridfree_coupling_matrix(
@@ -159,6 +248,29 @@ def generate_data(key, sensors, wind, dpv_case: int, ser: float) -> jnp.ndarray:
 
 
 def make_estimated_coupling(sensors, wind):
+    """Build a `coupling_fn(x) -> A` closure that infers all dispersion params from `x`.
+
+    Parameters
+    ----------
+    sensors : Array, shape (N_sensors, 3)
+        Sensor positions.
+    wind : WindField
+        Wind realization.
+
+    Returns
+    -------
+    Callable
+        `fn(x) -> A`, the coupling matrix with source location `x[5:7]` and
+        dispersion coefficients from `log_params=x[:4]`.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), Eq. (2)+(3), §2.1-2.2 — coupling
+    function for the "estimated" inversion mode (`estimated=True`) used
+    throughout the §4 simulation study and the misspecification-study "est"
+    arm (Figure 6).
+    """
+
     def fn(x):
         src = SourceLocation(x=x[5], y=x[6], z=TRUE_SRC_Z)
         return temporal_gridfree_coupling_matrix(
@@ -175,6 +287,29 @@ def make_estimated_coupling(sensors, wind):
 
 
 def make_fixed_coupling(sensors, wind, aH, aV, bH, bV):
+    """Build a `coupling_fn(x) -> A` closure with dispersion params fixed (not inferred).
+
+    Parameters
+    ----------
+    sensors : Array, shape (N_sensors, 3)
+        Sensor positions.
+    wind : WindField
+        Wind realization.
+    aH, aV, bH, bV : float
+        Fixed dispersion coefficients (not sampled; only source location
+        `x[5:7]` varies).
+
+    Returns
+    -------
+    Callable
+        `fn(x) -> A`.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), Figure 6, §4 — used for the "truth"
+    (correct fixed params) and "misspec" (deliberately wrong fixed params)
+    arms of the dispersion-misspecification study.
+    """
     lp = make_log_params(aH, aV, bH, bV)
 
     def fn(x):
@@ -193,6 +328,25 @@ def make_fixed_coupling(sensors, wind, aH, aV, bH, bV):
 
 
 def make_priors(ser: float) -> Priors:
+    """Build the `Priors` used throughout the §4 simulation study.
+
+    Parameters
+    ----------
+    ser : float
+        Source emission rate (SER) factor level [kg/s], used to centre the
+        `log_s` prior mean at the true value.
+
+    Returns
+    -------
+    Priors
+        Prior hyperparameters (widened relative to package defaults to keep
+        the inversion weakly informative).
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), Eq. (7), §3.1 / Supp. B.3 — concrete
+    hyperparameter values for the simulation study's prior specification.
+    """
     return Priors(
         log_a_H_mean=0.0,
         log_a_H_std=2.0,
@@ -215,12 +369,46 @@ def make_priors(ser: float) -> Priors:
 
 
 def run_mcmc(key, sensors, wind, data, ser: float, coupling_fn, iters: int, burn_in: int) -> dict:
+    """Run `mwg_scan` and reduce the post-burn-in chain to per-parameter posterior medians.
+
+    Parameters
+    ----------
+    key : Array
+        JAX PRNG key.
+    sensors : Array, shape (N_sensors, 3)
+        Sensor positions.
+    wind : WindField
+        Wind realization.
+    data : Array, shape (T, N_sensors)
+        Observed/simulated measurements.
+    ser : float
+        Source emission rate (SER) factor level [kg/s], used to centre priors
+        and the chain's initial state.
+    coupling_fn : Callable
+        `(x) -> A` coupling-matrix function.
+    iters : int
+        Number of MCMC iterations.
+    burn_in : int
+        Number of leading iterations discarded before computing medians.
+
+    Returns
+    -------
+    dict
+        Posterior medians for `aH, aV, bH, bV, s, src_x, src_y, sigma2`, plus
+        the mean acceptance rate `accept`.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), Algorithm pseudocode Supp. A.3 —
+    wraps `inverse.mcmc.mwg_scan` (Eq. 8-10) for one simulation-study
+    replicate. Initialising the source guess at the sensor-array centroid is
+    an implementation choice (not in the paper) needed because the sharp
+    likelihood from low measurement noise otherwise leaves the chain stuck
+    far from the true location when started at `(0, 0)`.
+    """
     priors = make_priors(ser)
     gibbs = GibbsSamplers(priors)
     n = sensors.shape[0]
-    # Initialise the source guess at the sensor-array centroid (sensors are deployed
-    # around the suspected source). With the sharp likelihood from low measurement
-    # noise, a (0,0) start leaves the chain stuck far from the true location.
     cx0 = float(jnp.mean(sensors[:, 0]))
     cy0 = float(jnp.mean(sensors[:, 1]))
     x_init = jnp.array([0.0, 0.0, 0.0, 0.0, math.log(ser), cx0, cy0])
@@ -256,6 +444,26 @@ def run_mcmc(key, sensors, wind, data, ser: float, coupling_fn, iters: int, burn
 
 
 def build_scenario(factor: str, level) -> dict:
+    """Build a baseline-level (`BL`) scenario dict with one factor overridden.
+
+    Parameters
+    ----------
+    factor : {"WDC", "DPV", "SER", "DTS", "OPS", "SL"}
+        Name of the factor to vary.
+    level
+        Value to substitute for `factor` (one entry of `FACTOR_LEVELS[factor]`).
+
+    Returns
+    -------
+    dict
+        Scenario configuration, identical to `BL` except for `factor`.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), §4 — implements the "main effects"
+    design where each of the six factors (WDC, DPV, SER, DTS, OPS, SL) is
+    varied one at a time around the baseline level M (Figs. 4-5).
+    """
     s = dict(BL)
     key = {
         "WDC": "wdc_degrees",
@@ -270,7 +478,30 @@ def build_scenario(factor: str, level) -> dict:
 
 
 def run_factor_sweeps(n_reps: int, iters: int, burn_in: int) -> dict:
-    """Returns {factor: {level: [n_reps result dicts]}}."""
+    """Run the full six-factor, three-level main-effects sweep with replication.
+
+    Parameters
+    ----------
+    n_reps : int
+        Number of independent replicates per factor level.
+    iters : int
+        MCMC iterations per replicate.
+    burn_in : int
+        Burn-in length per replicate.
+
+    Returns
+    -------
+    dict
+        `{factor: {level: [n_reps result dicts]}}`, one result dict per
+        replicate (see `run_mcmc`).
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), §4, Figs. 4-5 — the full main-effects
+    simulation study: for each of the 6 factors (`FACTOR_LEVELS`) at each of
+    its 3 levels, simulate data (`generate_data`) and recover posterior
+    medians (`run_mcmc`) over `n_reps` independent replicates.
+    """
     all_results = {}
     total = sum(len(lvls) for lvls in FACTOR_LEVELS.values()) * n_reps
     done = 0
@@ -305,7 +536,32 @@ def run_factor_sweeps(n_reps: int, iters: int, burn_in: int) -> dict:
 
 
 def run_misspec_study(n_reps: int, iters: int, burn_in: int) -> dict:
-    """Returns {param_name: {val: {model: [n_reps dicts]}}} plus 'truth' and 'est' keys."""
+    """Run the dispersion-parameter misspecification study (Figure 6).
+
+    Parameters
+    ----------
+    n_reps : int
+        Number of independent replicates per (param, value) cell.
+    iters : int
+        MCMC iterations per replicate.
+    burn_in : int
+        Burn-in length per replicate.
+
+    Returns
+    -------
+    dict
+        `{param_name: {val: {"truth": [...], "est": [...], "misspec": [...]}}}`,
+        each a list of `n_reps` result dicts from `run_mcmc`.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), Figure 6, §4 — for each dispersion
+    coefficient (`aH, bH, aV, bV`) swept over a range of candidate values,
+    compares source-estimate quality when that one coefficient is: fixed at
+    its true value ("truth"), fixed at a wrong value ("misspec"), or
+    estimated jointly with the source ("est") — quantifying sensitivity of
+    the inversion to dispersion-model misspecification.
+    """
     sensors = make_sensors(BL["layout"], BL["dts"])
     true_aH, true_aV, true_bH, true_bV = MISSPEC_TRUE
     results = {
@@ -366,6 +622,23 @@ def run_misspec_study(n_reps: int, iters: int, burn_in: int) -> dict:
 
 
 def plot_figure3(iters: int, burn_in: int):
+    """Render Figure 3 (simulation setup): polar sensor traces, plume map, 3D sensor layout.
+
+    Parameters
+    ----------
+    iters : int
+        Unused MCMC parameter, kept for call-signature symmetry with the
+        other `plot_*` functions.
+    burn_in : int
+        Unused MCMC parameter, kept for call-signature symmetry.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), Figure 3, §4 — three-panel
+    simulation-setup figure: (a) sensor concentration vs. wind direction,
+    (b) plume concentration map at wind direction 0 deg (Eq. 2), (c) the 6x6
+    grid sensor layout in 3D.
+    """
     if not HAS_MPL:
         return
     k_w, k_d, k_m = jax.random.split(KEY, 3)
@@ -450,6 +723,29 @@ def plot_figure3(iters: int, burn_in: int):
 
 
 def _true_val(param: str, factor: str, level) -> float:
+    """Look up the ground-truth value of `param` for a given factor/level combination.
+
+    Parameters
+    ----------
+    param : str
+        Parameter name (`"aH"`, `"aV"`, `"bH"`, `"bV"`, `"s"`, `"src_x"`,
+        `"src_y"`, or `"sigma2"`).
+    factor : str
+        Factor being swept (e.g. `"DPV"`, `"SER"`).
+    level
+        Current level of `factor`.
+
+    Returns
+    -------
+    float
+        Ground-truth value, used to draw reference lines/marks on Figs. 4-5.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), Figs. 4-5, §4 — supplies the true
+    parameter value plotted against each posterior boxplot, accounting for
+    the DPV and SER factors changing the ground truth itself.
+    """
     if factor == "DPV":
         aH, aV, bH, bV = DPV_PARAMS[level]
         return {
@@ -478,6 +774,21 @@ def _true_val(param: str, factor: str, level) -> float:
 
 
 def plot_figures_4_5(all_results: dict):
+    """Render Figures 4 & 5: main-effects boxplots for all six factors.
+
+    Parameters
+    ----------
+    all_results : dict
+        Output of `run_factor_sweeps`.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), Figures 4-5, §4 — Figure 4 plots
+    emission rate `s`, source location `src_x`/`src_y`, and measurement
+    variance `sigma2` against each factor; Figure 5 plots the dispersion
+    coefficients `aH, bH, aV, bV`. Both are boxplots of posterior medians
+    over replicates, one column per factor, with the true value marked.
+    """
     if not HAS_MPL:
         return
     factors = list(FACTOR_LEVELS.keys())
@@ -551,6 +862,22 @@ def plot_figures_4_5(all_results: dict):
 
 
 def plot_figure6(misspec_results: dict):
+    """Render Figure 6: dispersion-misspecification impact on source estimates.
+
+    Parameters
+    ----------
+    misspec_results : dict
+        Output of `run_misspec_study`.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), Figure 6, §4 — for each dispersion
+    coefficient and source parameter (`s`, `src_x`, `src_y`), shows boxplots
+    of the "misspec" estimates across candidate values alongside the "truth"
+    (correct fixed param) and "est" (jointly inferred) reference boxes,
+    visualizing how source-estimate quality degrades with dispersion
+    misspecification.
+    """
     if not HAS_MPL:
         return
     source_params = ["s", "src_x", "src_y"]
@@ -650,6 +977,19 @@ def plot_figure6(misspec_results: dict):
 
 
 def parse_args():
+    """Parse CLI flags controlling reproduction fidelity and figure scope.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed flags `paper`, `fig3`, `no_fig6`.
+
+    Notes
+    -----
+    Paper Mapping: extension beyond Newman et al. (2024); CLI plumbing, not a
+    paper equation. `--paper` switches `N_REPS`/`ITERS` to paper-quality
+    values (see `main`).
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--paper", action="store_true", help="N_REPS=50, ITERS=5000")
     p.add_argument("--fig3", action="store_true", help="Figure 3 only (no MCMC)")
@@ -658,6 +998,16 @@ def parse_args():
 
 
 def main():
+    """Run the §4 simulation study end-to-end and save Figures 3, 4, 5, 6.
+
+    Notes
+    -----
+    Paper Mapping: Newman et al. (2024), §4 — orchestrates: Figure 3
+    (simulation setup) -> Figures 4/5 (six-factor main-effects sweep,
+    `run_factor_sweeps`) -> Figure 6 (dispersion misspecification study,
+    `run_misspec_study`), each rendered by the corresponding `plot_figure*`
+    function.
+    """
     args = parse_args()
     n_reps = 50 if args.paper else 5
     iters = 5000 if args.paper else 300

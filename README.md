@@ -179,6 +179,17 @@ uv run ruff check src/               # lint (ruff in dev extras)
 uv run ruff check --fix src/
 ```
 
+## API docs
+
+Docstrings carry full NumPy-style signatures plus a "Paper Mapping" note
+(equation/section/figure in Newman et al. 2024) and LaTeX where an equation
+exists. Build static HTML with [pdoc](https://pdoc.dev):
+
+```bash
+uv run pdoc --math -o docs pim_ge    # → docs/pim_ge.html
+uv run pdoc --math pim_ge            # serve locally instead of writing files
+```
+
 ## Reference
 
 Newman, T., Sherlock, C., Whittle, M., & Gałkowski, M. (2024).

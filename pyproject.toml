@@ -51,3 +51,8 @@ known-first-party = ["pim_ge"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pdoc>=16.0.0",
+]

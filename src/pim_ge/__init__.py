@@ -1,3 +1,9 @@
+"""pim-ge: JAX reimplementation of Newman et al. (2024), arXiv:2408.01298.
+
+Public API for the forward Gaussian plume model (§2) and the inverse
+M-MALA-within-Gibbs sampler (§3).
+"""
+
 from pim_ge.forward.plume import temporal_gridfree_coupling_matrix
 from pim_ge.forward.sensors import Sensors, SensorsSettings
 from pim_ge.forward.wind import WindField
