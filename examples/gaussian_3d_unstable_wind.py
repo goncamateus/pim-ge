@@ -22,9 +22,9 @@ from pim_ge.forward.plume import temporal_gridfree_coupling_matrix
 from pim_ge.forward.wind import wind_direction, wind_speed
 
 EMISSION_RATE = 0.9  # [kg/s] source strength multiplied into the unit coupling matrix A
-SOURCE_Z = 10.0  # [m] release height of the point source
-MIXING_HEIGHT = 5.0  # [m] boundary-layer ceiling; low here so reflections dominate near-source
-CORE_FRAC = 0.04  # fraction of each frame's peak concentration used as the scatter-cloud cutoff
+SOURCE_Z = 25.0  # [m] release height of the point source
+MIXING_HEIGHT = 300.0  # [m] boundary-layer ceiling — well above SOURCE_Z for offshore chimney
+CORE_FRAC = 0.01  # fraction of each frame's peak concentration used as the scatter-cloud cutoff
 
 START_X = 0  # [m] grid lower x bound (plume only evaluated downwind of the source)
 END_X = 600.0  # [m] grid upper x bound
@@ -34,9 +34,9 @@ START_Y = -200  # [m] grid lower y bound (crosswind)
 END_Y = 200.0  # [m] grid upper y bound
 NY = 40  # grid points along y
 
-START_Z = SOURCE_Z - 5.0  # [m] grid lower z bound, centred on source height
-END_Z = SOURCE_Z + 5.0  # [m] grid upper z bound
-NZ = 20  # grid points along z
+START_Z = 0.0  # [m] grid lower z bound (sea/ground level) — plume can spread below the source
+END_Z = 100  # [m] grid upper z bound
+NZ = 35  # grid points along z (denser -> fuller-looking 3D cloud)
 
 # OU wind parameters — unstable in both scale and direction
 SPEED_MEAN = 2.0  # [m/s] OU mean-reversion level for wind speed
@@ -182,17 +182,28 @@ def main():
         cb.set_label("ppm", color="white", fontsize=8)
         plt.setp(cb.ax.yaxis.get_ticklabels(), color="white", fontsize=7)
 
-    def _setup_ax3():
-        """Reset the 3D axes' styling/limits/viewing angle (called after each `ax3.cla()`)."""
+    def _setup_ax3(t):
+        """Reset the 3D axes' styling/limits/viewing angle (called after each `ax3.cla()`).
+
+        Camera orbits smoothly over the animation so both crosswind (-y/+y)
+        and vertical (-z/+z) sides of the plume are visible across frames.
+        """
         ax3.set_facecolor("#0e0e0e")
         ax3.set_xlabel("x (m)", labelpad=4, color="white", fontsize=8)
         ax3.set_ylabel("y (m)", labelpad=4, color="white", fontsize=8)
         ax3.set_zlabel("z (m)", labelpad=4, color="white", fontsize=8)
-        ax3.set_xlim(START_X-10, END_X+10)
-        ax3.set_ylim(START_Y-10, END_Y+10)
-        ax3.set_zlim(START_Z-10, END_Z+10)
+        ax3.set_xlim(START_X - 10, END_X + 10)
+        ax3.set_ylim(START_Y - 10, END_Y + 10)
+        ax3.set_zlim(START_Z - 10, END_Z + 10)
+        ax3.set_box_aspect(
+            (END_X - START_X + 20, END_Y - START_Y + 20, END_Z - START_Z + 20)
+        )  # true proportions, not auto-stretched
         ax3.tick_params(colors="white", labelsize=7)
-        ax3.view_init(elev=24, azim=-55)
+        azim = -180 * (t / max(T - 1, 1)) - 30  # full half-turn -> see both +y/-y sides
+        elev = SOURCE_Z + 10 * np.sin(
+            2 * np.pi * 2 * t / max(T - 1, 1)
+        )  # sweep -> see both +z/-z sides
+        ax3.view_init(elev=elev, azim=azim)
 
     def update(t):
         """Draw frame `t`: redraw the 3D scatter cloud, ground footprint, and cross-section.
@@ -222,7 +233,9 @@ def main():
         log_p = np.log(max(peak, 1e-12))
         rgba[:, 3] = (
             np.clip(
-                0.3 + 0.65 * (np.log(np.clip(cm, 1e-12, None)) - log_t) / (log_p - log_t), 0.1, 0.95
+                0.45 + 0.5 * (np.log(np.clip(cm, 1e-12, None)) - log_t) / (log_p - log_t),
+                0.25,
+                0.95,
             )
             if log_p > log_t
             else np.full(len(cm), 0.5)
@@ -232,7 +245,7 @@ def main():
 
         # 3D axes — clear and redraw each frame
         ax3.cla()
-        _setup_ax3()
+        _setup_ax3(t)
         ax3.scatter(
             [source.x],
             [source.y],
@@ -245,7 +258,7 @@ def main():
         )
         if len(idx):
             xp, yp, zp = np.array(XX.ravel()), np.array(YY.ravel()), np.array(ZZ.ravel())
-            ax3.scatter(xp[idx], yp[idx], zp[idx], c=rgba, s=12, depthshade=True)
+            ax3.scatter(xp[idx], yp[idx], zp[idx], c=rgba, s=20, depthshade=True)
         ax3.contourf(XXg, YYg, footprint, zdir="z", offset=0.0, levels=20, cmap="Blues", alpha=0.45)
 
         # Ground footprint

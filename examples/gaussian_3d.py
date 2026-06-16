@@ -22,7 +22,8 @@ SOURCE_Z = 5.0  # [m] release height of the point source
 MIXING_HEIGHT = 200.0  # [m] boundary-layer ceiling used by the inversion-layer reflection term
 CORE_FRAC = 0.04  # fraction of each frame's peak concentration used as the scatter-cloud cutoff
 NX = NY = 40  # grid points along x/y (ground plane)
-NZ = 20  # grid points along z (height)
+NZ = 30  # grid points along z (height)
+Z_MAX = 300.0  # [m] z ceiling — matches the x/y half-range so the cone isn't squashed flat
 
 STABILITY_LABELS = {
     "A": "A — Very unstable",
@@ -66,7 +67,7 @@ def build_grid():
     """
     x = jnp.linspace(-300.0, 300.0, NX)
     y = jnp.linspace(-300.0, 300.0, NY)
-    z = jnp.linspace(0.2, 60.0, NZ)
+    z = jnp.linspace(0.2, Z_MAX, NZ)
     XX, YY, ZZ = jnp.meshgrid(x, y, z, indexing="ij")
     return x, y, z, XX, YY, ZZ
 
@@ -157,7 +158,8 @@ def main():
         ax3.set_zlabel("z (m)", labelpad=4, color="white", fontsize=8)
         ax3.set_xlim(-300, 300)
         ax3.set_ylim(-300, 300)
-        ax3.set_zlim(0, 60)
+        ax3.set_zlim(0, Z_MAX)
+        ax3.set_box_aspect((600, 600, Z_MAX))  # true proportions so the cone isn't squashed flat
         ax3.tick_params(colors="white", labelsize=7)
         ax3.view_init(elev=24, azim=-55)
 
