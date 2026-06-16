@@ -13,3 +13,6 @@ reproduction/*.csv
 reproduction/*.png
 
 .codegraph/daemon.pid
+
+# regenerate via examples/gaussian_3d.py / gaussian_3d_unstable_wind.py / jet_momentum.py
+examples/*.mp4
