@@ -6,6 +6,11 @@ same 3-panel layout — 3D scatter cloud, ground footprint (max over z), and a
 vertical cross-section at y=0 — over an evolving wind field, and save the
 result as MP4 (falling back to GIF, then to an interactive window).
 
+That shared figure/colorbar/save-or-show scaffolding lives in `_viz.py`
+(`build_figure`, `init_colorbars`, `save_or_show`, `STABILITY_LABELS`) so
+each script below only contains what's actually specific to it: grid
+domain, wind model, camera motion, and the per-frame `update()`.
+
 ## `gaussian_3d.py` — deterministic wind sweep
 
 Wind speed is constant; wind direction sweeps a full 0→360° circle over the

@@ -30,7 +30,9 @@ src/pim_ge/
     └── types.py      # Grid, SourceLocation dataclasses
 
 examples/
-└── gaussian_3d.py   # 3D animated plume: scatter cloud + ground footprint + xz cross-section
+├── gaussian_3d.py                 # deterministic wind sweep: scatter cloud + ground footprint + xz cross-section
+├── gaussian_3d_unstable_wind.py   # same 3-panel animation, OU (stochastic) wind
+└── _viz.py                        # shared figure/colorbar/save-or-show scaffolding for the two scripts above
 
 reproduction/
 ├── section4_simulation_study.py      # §4 — DPV × WDC × SER sweep (12 scenarios)
@@ -164,6 +166,9 @@ Divide by beam length to convert to path-average [ppm per kg/s].
 uv run --extra examples examples/gaussian_3d.py --class D --frames 100 --fps 10
 # → examples/plume_3d_classD.mp4  (or .gif if ffmpeg absent)
 
+# same 3-panel animation, stochastic (Ornstein-Uhlenbeck) wind instead of a fixed sweep
+uv run --extra examples examples/gaussian_3d_unstable_wind.py --class A --frames 100 --fps 10
+
 # Section 4 simulation study (12 scenarios, ~10 min at ITERS=2000)
 uv run python reproduction/section4_simulation_study.py
 
@@ -174,7 +179,7 @@ uv run python reproduction/section5_chilbolton.py
 ## Development
 
 ```bash
-uv run pytest                        # 48 tests
+uv run pytest                        # 59 tests
 uv run ruff check src/               # lint (ruff in dev extras)
 uv run ruff check --fix src/
 ```
