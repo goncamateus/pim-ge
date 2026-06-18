@@ -1,5 +1,5 @@
-import jax.numpy as jnp
 import pytest
+
 from pim_ge.utils.types import Grid, SourceLocation
 
 

@@ -1,7 +1,6 @@
 import jax.numpy as jnp
-import pytest
-from pim_ge.inverse.priors import Priors
 
+from pim_ge.inverse.priors import Priors
 
 P = Priors()
 

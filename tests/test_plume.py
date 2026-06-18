@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 import pytest
+
 from pim_ge.forward.plume import (
     downwind_distance,
     horizontal_offset,

@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 import pytest
+
 from pim_ge.forward.wind import (
     WindField,
     generate_ornstein_uhlenbeck,
@@ -9,7 +10,6 @@ from pim_ge.forward.wind import (
     wind_direction_sinusoidal,
     wind_speed,
 )
-
 
 KEY = jax.random.PRNGKey(42)
 

@@ -1,9 +1,7 @@
 import jax
 import jax.numpy as jnp
-import pytest
+
 from pim_ge.forward.sensors import (
-    Sensors,
-    SensorsSettings,
     circle_of_sensors,
     grid_of_sensors,
     random_sensor_locations,
