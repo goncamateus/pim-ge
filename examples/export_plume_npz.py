@@ -109,6 +109,22 @@ def compute(args):
     )
 
 
+def save_npz(path, conc, x, y, z, source, emission_rate, stability_class, fps):
+    """Write the plume + provenance metadata to a compressed .npz at `path`."""
+    np.savez_compressed(
+        path,
+        conc=conc,
+        x=x,
+        y=y,
+        z=z,
+        source=source,
+        emission_rate=np.float32(emission_rate),
+        stability_class=stability_class,
+        fps=np.int32(fps),
+    )
+    print(f"Wrote {path}  ({conc.nbytes / 1e6:.1f} MB uncompressed)")
+
+
 def main():
     args = parse_args()
     conc, x, y, z, source, peak = compute(args)
@@ -124,18 +140,7 @@ def main():
         print(f"selfcheck OK: shape={conc.shape} peak={peak:.1f}ppm at "
               f"(x={x[ix]:.1f}, y={y[iy]:.1f}, z={z[iz]:.1f})")
 
-    np.savez_compressed(
-        args.out,
-        conc=conc,
-        x=x,
-        y=y,
-        z=z,
-        source=source,
-        emission_rate=np.float32(args.emission_rate),
-        stability_class=args.stability_class,
-        fps=np.int32(args.fps),
-    )
-    print(f"Wrote {args.out}  ({conc.nbytes / 1e6:.1f} MB uncompressed)")
+    save_npz(args.out, conc, x, y, z, source, args.emission_rate, args.stability_class, args.fps)
 
 
 if __name__ == "__main__":

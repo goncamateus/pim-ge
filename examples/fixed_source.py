@@ -171,6 +171,116 @@ def build_grid(args):
     return x, y, z, XX, YY, ZZ
 
 
+def build_animation(conc_all, x_vals, y_vals, z_vals, source, speeds, directions,
+                     fps, stability_class, core_frac=0.01):
+    """Build the 3-panel (3D scatter / footprint / xz cross-section) animation.
+
+    Parameters
+    ----------
+    conc_all : numpy.ndarray, shape (T, nx, ny, nz)
+        Precomputed concentration field (e.g. from export_plume_npz.compute()).
+    x_vals, y_vals, z_vals : numpy.ndarray
+        1D grid axis coordinates (nx, ny, nz points respectively).
+    source : SourceLocation
+    speeds, directions : numpy.ndarray, shape (T,)
+        Per-frame wind speed [m/s] / direction [rad], for the frame title.
+    fps : int
+        Only affects on-screen playback timing (`FuncAnimation`'s `interval`);
+        the export fps is passed separately to `save_or_show`.
+    stability_class : str
+        One of "A".."F" — looked up in STABILITY_LABELS for the title.
+    core_frac : float
+        Scatter-cloud cutoff fraction (same meaning as the --core-frac CLI flag).
+
+    Returns
+    -------
+    matplotlib.animation.FuncAnimation
+    """
+    T, nx, ny, nz = conc_all.shape
+    cls = stability_class
+
+    global_peak = conc_all.max()
+    VMIN = max(global_peak * 0.001, 0.01)
+    VMAX = global_peak
+    NORM = LogNorm(vmin=VMIN, vmax=VMAX)
+    CMAP = plt.colormaps["inferno"]
+
+    Xg = np.asarray(x_vals)
+    Yg = np.asarray(y_vals)
+    Zg = np.asarray(z_vals)
+    XXg, YYg = np.meshgrid(Xg, Yg, indexing="ij")
+    XX, YY, ZZ = np.meshgrid(Xg, Yg, Zg, indexing="ij")
+
+    # ── Figure ────────────────────────────────────────────────────────────────
+    fig, ax3, ax_xy, ax_xz, title = build_figure()
+
+    # Build colorbars from first frame so axes are set up once
+    fp0 = conc_all[0].max(axis=2)
+    xz0 = conc_all[0][:, ny // 2, :]
+    init_colorbars(ax_xy, ax_xz, Xg, Yg, Zg, fp0, xz0, NORM)
+
+    def update(t):
+        """Draw frame `t`: redraw the 3D scatter cloud, ground footprint, and cross-section.
+
+        Camera orbits smoothly over the animation (via `setup_axes3d`'s
+        `elev`/`azim`) so both crosswind (-y/+y) and vertical (-z/+z) sides
+        of the plume are visible across frames.
+
+        Parameters
+        ----------
+        t : int
+            Frame index into `conc_all` / `speeds` / `directions`.
+
+        Returns
+        -------
+        list
+            Empty list (artists are redrawn via `cla()`/`clear()`, not blit).
+        """
+        conc_3d = conc_all[t]
+        conc_flat = conc_3d.ravel()
+        peak = conc_flat.max()
+        idx, cm, threshold = scatter_mask(conc_flat, peak, core_frac, VMIN)
+        rgba = cloud_rgba(
+            cm,
+            CMAP,
+            NORM,
+            threshold,
+            peak,
+            alpha_lo=0.45,
+            alpha_range=0.5,
+            clip_lo=0.25,
+            clip_hi=0.95,
+        )
+        footprint = conc_3d.max(axis=2)
+
+        # 3D axes — clear and redraw each frame
+        ax3.cla()
+        azim = -180 * (t / max(T - 1, 1)) - 30  # full half-turn -> see both +y/-y sides
+        elev = source.z + 10 * np.sin(
+            2 * np.pi * 2 * t / max(T - 1, 1)
+        )  # sweep -> see both +z/-z sides
+        setup_axes3d(
+            ax3,
+            xlim=(Xg[0] - 10, Xg[-1] + 10),
+            ylim=(Yg[0] - 10, Yg[-1] + 10),
+            zlim=(Zg[0] - 10, Zg[-1] + 10),
+            elev=elev,
+            azim=azim,
+        )
+        xp, yp, zp = XX.ravel(), YY.ravel(), ZZ.ravel()
+        draw_3d_scatter(ax3, source, xp, yp, zp, idx, rgba, 20, XXg, YYg, footprint)
+
+        draw_xy_panel(ax_xy, Xg, Yg, footprint, NORM, source.x, source.y)
+        draw_xz_panel(ax_xz, Xg, Zg, conc_3d[:, ny // 2, :], NORM, source.z)
+
+        deg = np.degrees(float(directions[t])) % 360
+        spd = float(speeds[t])
+        title.set_text(frame_title(STABILITY_LABELS[cls], t, T, deg, spd, peak))
+        return []
+
+    return FuncAnimation(fig, update, frames=T, interval=max(50, 1000 // fps), repeat=True)
+
+
 def main():
     """Simulate an OU wind realization, compute the plume over all frames, animate it.
 
@@ -227,91 +337,24 @@ def main():
         stability_class=cls,
         jet=jet,
     )  # (T, NX*NY*NZ)
-    conc_all = np.array(A * args.emission_rate)
+    conc_all = np.array(A * args.emission_rate).reshape(T, args.nx, args.ny, args.nz)
     print(f"Done. Global peak: {conc_all.max():.1f} ppm")
 
     speeds_np = np.array(speeds)
     directions_np = np.array(directions)
 
-    global_peak = conc_all.max()
-    VMIN = max(global_peak * 0.001, 0.01)
-    VMAX = global_peak
-    NORM = LogNorm(vmin=VMIN, vmax=VMAX)
-    CMAP = plt.colormaps["inferno"]
-
-    Xg = np.array(x_vals)
-    Yg = np.array(y_vals)
-    Zg = np.array(z_vals)
-    XXg, YYg = np.meshgrid(Xg, Yg, indexing="ij")
-
-    # ── Figure ────────────────────────────────────────────────────────────────
-    fig, ax3, ax_xy, ax_xz, title = build_figure()
-
-    # Build colorbars from first frame so axes are set up once
-    fp0 = conc_all[0].reshape(args.nx, args.ny, args.nz).max(axis=2)
-    xz0 = conc_all[0].reshape(args.nx, args.ny, args.nz)[:, args.ny // 2, :]
-    init_colorbars(ax_xy, ax_xz, Xg, Yg, Zg, fp0, xz0, NORM)
-
-    def update(t):
-        """Draw frame `t`: redraw the 3D scatter cloud, ground footprint, and cross-section.
-
-        Camera orbits smoothly over the animation (via `setup_axes3d`'s
-        `elev`/`azim`) so both crosswind (-y/+y) and vertical (-z/+z) sides
-        of the plume are visible across frames.
-
-        Parameters
-        ----------
-        t : int
-            Frame index into `conc_all` / `speeds_np` / `directions_np`.
-
-        Returns
-        -------
-        list
-            Empty list (artists are redrawn via `cla()`/`clear()`, not blit).
-        """
-        conc_flat = conc_all[t]
-        conc_3d = conc_flat.reshape(args.nx, args.ny, args.nz)
-        peak = conc_flat.max()
-        idx, cm, threshold = scatter_mask(conc_flat, peak, args.core_frac, VMIN)
-        rgba = cloud_rgba(
-            cm,
-            CMAP,
-            NORM,
-            threshold,
-            peak,
-            alpha_lo=0.45,
-            alpha_range=0.5,
-            clip_lo=0.25,
-            clip_hi=0.95,
-        )
-        footprint = conc_3d.max(axis=2)
-
-        # 3D axes — clear and redraw each frame
-        ax3.cla()
-        azim = -180 * (t / max(T - 1, 1)) - 30  # full half-turn -> see both +y/-y sides
-        elev = source.z + 10 * np.sin(
-            2 * np.pi * 2 * t / max(T - 1, 1)
-        )  # sweep -> see both +z/-z sides
-        setup_axes3d(
-            ax3,
-            xlim=(args.start_x - 10, args.end_x + 10),
-            ylim=(args.start_y - 10, args.end_y + 10),
-            zlim=(args.start_z - 10, args.end_z + 10),
-            elev=elev,
-            azim=azim,
-        )
-        xp, yp, zp = np.array(XX.ravel()), np.array(YY.ravel()), np.array(ZZ.ravel())
-        draw_3d_scatter(ax3, source, xp, yp, zp, idx, rgba, 20, XXg, YYg, footprint)
-
-        draw_xy_panel(ax_xy, Xg, Yg, footprint, NORM, source.x, source.y)
-        draw_xz_panel(ax_xz, Xg, Zg, conc_3d[:, args.ny // 2, :], NORM, source.z)
-
-        deg = np.degrees(float(directions_np[t])) % 360
-        spd = float(speeds_np[t])
-        title.set_text(frame_title(STABILITY_LABELS[cls], t, T, deg, spd, peak))
-        return []
-
-    anim = FuncAnimation(fig, update, frames=T, interval=max(50, 1000 // args.fps), repeat=True)
+    anim = build_animation(
+        conc_all,
+        np.array(x_vals),
+        np.array(y_vals),
+        np.array(z_vals),
+        source,
+        speeds_np,
+        directions_np,
+        args.fps,
+        cls,
+        args.core_frac,
+    )
 
     out_base = f"examples/plume_3d_unstable_wind_class{cls}"
     save_or_show(anim, out_base, args.fps, args.show)
